@@ -1,0 +1,20 @@
+/**:
+  ros__parameters:
+    robot: ""
+    time_dilation_factor: 0.5
+    collision_cache_mesh: 20
+    collision_cache_cuboid: 20
+    interpolation_dt: 0.02
+    voxel_dims: [2.0, 2.0, 2.0]
+    voxel_size: 0.05
+    read_esdf_world: False
+    publish_curobo_world_as_voxels: False
+    add_ground_plane: False
+    publish_voxel_size: 0.05
+    max_publish_voxels: 50000
+    tool_frame: ""
+    grid_position: [0.0, 0.0, 0.0]
+    esdf_service_name: "/nvblox_node/get_esdf_and_gradient"
+    urdf_path: ""
+    enable_curobo_debug_mode: False
+    override_moveit_scaling_factors: False

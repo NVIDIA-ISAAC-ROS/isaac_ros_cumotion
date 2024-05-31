@@ -1,0 +1,7 @@
+<library path="libisaac_ros_cumotion_moveit">
+  <class name="isaac_ros_cumotion_moveit/CumotionPlanner" type="nvidia::isaac::manipulation::CumotionPlannerManager" base_class_type="planning_interface::PlannerManager">
+    <description>
+      The cuMotion planner generates collision-free trajectories leveraging CUDA compute.
+    </description>
+  </class>
+</library>
