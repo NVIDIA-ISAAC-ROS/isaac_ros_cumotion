@@ -1,0 +1,7 @@
+# This service sets up the target pose.
+# Request
+geometry_msgs/PoseStamped pose
+---
+# Response
+# Result of the service
+bool success

@@ -1,0 +1,7 @@
+# Ignore all pycache files
+**/__pycache__/**
+
+# FIXME: Only for DNN-based packages
+# Ignore TensorRT plan files
+*.plan
+*.engine

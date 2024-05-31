@@ -1,0 +1,15 @@
+/**:
+  ros__parameters:
+    robot:  ur5e.yml
+    depth_image_topics: [/depth_image]
+    depth_camera_infos: [/rgb/camera_info]
+    robot_mask_publish_topics: [/cumotion/camera_1/robot_mask]
+    world_depth_publish_topics: [/cumotion/camera_1/world_depth]
+    joint_states_topic: /joint_states
+    debug_robot_topic: /cumotion/robot_segmenter/robot_spheres
+    distance_threshold: 0.2
+    time_sync_slop: 0.1
+    tf_lookup_duration: 5.0
+    cuda_device: 0
+    log_debug: False
+    urdf_path: null
