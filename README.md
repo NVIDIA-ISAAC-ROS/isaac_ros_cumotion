@@ -7,22 +7,44 @@ NVIDIA accelerated packages for arm motion planning and control
 ## Overview
 
 [Isaac ROS cuMotion](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_cumotion) provides CUDA-accelerated manipulation
-capabilities for robots in ROS 2, enabling faster processing speeds and real-time performance
-that are crucial to complex robotics tasks such as motion planning.
-It provides two main capabilities, motion generation for robot
-arms via an integration of cuMotion into MoveIt 2 and segmentation of robot from depth streams
-using cuMotion’s kinematics and geometry processing functions to accurately identify and filter robot parts.
-This allows one to reconstruct obstacles in the environment without spurious contributions from the robot itself.
+capabilities for robots in ROS 2.  It provides two main capabilities:
+
+1. Motion generation for robot arms via integration of [cuMotion](https://nvidia-isaac-ros.github.io/concepts/manipulation/index.html#concept-cumotion)
+   into MoveIt 2
+2. Segmentation of robots from depth streams using cuMotion’s kinematics and geometry
+   processing functions to accurately identify and filter out parts of the robot.
+   This allows reconstruction of obstacles in the environment without spurious contributions
+   from the robot itself.
 
 The key advantages of using Isaac ROS cuMotion are:
 
-* Increased Efficiency: CUDA acceleration significantly speeds up processing times,
-  allowing for complex computation, such as collision avoidance, occurring at real-time.
-* Enhanced Precision: Accurate motion planning and segmentation allow for better
-  performance in tasks requiring fine manipulation and detailed environmental interaction.
-* Improved Flexibility: Modular design allows easy integration with existing ROS 2 setups,
-  such as configurations using MoveIt 2, enabling customization and scalability using familiar
-  tooling.
+* **Improved cycle times:** cuMotion produces smooth, optimal-time trajectories in the
+  presence of obstacles, generally reducing motion times compared to previous
+  state-of-the-art planners.  In cluttered environments and other challenging scenarios,
+  cuMotion can often produce a valid trajectory when other planners might fail altogether.
+* **Improved planning times:** cuMotion takes advantage of CUDA acceleration to produce
+  collision-free, optimal-time trajectories in a fraction of a second.
+* **Avoidance of obstacles captured by depth camera(s):** cuMotion optionally leverages
+  [nvblox](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_nvblox/index.html) to perform 3D reconstruction of an environment from one or more depth image
+  streams.  The environment is represented as a signed distance field (SDF) for
+  efficient obstacle-aware planning.  Support is provided for segmenting and filtering
+  the robot itself from the depth stream(s).
+* **Flexibility:** A modular design simplifies integration with existing ROS 2 workflows,
+  especially those already using MoveIt 2.
+
+> [!Warning]
+> Before using or developing with cuMotion or other Isaac Manipulator software, please read and
+> familiarize yourself with the associated safety information that is provided by your robot
+> manufacturer.
+
+> In addition, we provide the following best practices:
+
+> 1. Familiarize yourself with the location of the emergency stop buttons, and be prepared to apply if necessary.
+> 2. Before operation, ensure the working area is free of any persons or other potential hazards.
+> 3. Before operation, alert all persons near the working area that robot operation is about to begin.
+> 4. Before and during operation, be aware of any persons entering the vicinity around the working area,
+>    and be prepared to give necessary warnings, instructions, or take other necessary actions.
+> 5. Take extra caution when testing or deploying new features or code.
 
 The Isaac ROS cuMotion repository currently contains the following packages:
 
@@ -50,6 +72,8 @@ Please visit the [Isaac ROS Documentation](https://nvidia-isaac-ros.github.io/re
 * [`isaac_ros_cumotion`](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion/index.html)
   * [Motion Generation](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion/index.html#motion-generation)
   * [Robot Segmentation](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion/index.html#robot-segmentation)
+  * [Troubleshooting](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion/index.html#troubleshooting)
+  * [API](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion/index.html#api)
 * [`isaac_ros_cumotion_moveit`](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion_moveit/index.html)
   * [Quickstart](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion_moveit/index.html#quickstart)
   * [Try More Examples](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion_moveit/index.html#try-more-examples)
