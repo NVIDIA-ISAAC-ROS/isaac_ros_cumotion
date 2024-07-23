@@ -548,16 +548,20 @@ class CumotionActionServer(Node):
                 start_state = current_joint_state
 
         # attach object to end effector:
+        objs = []
         for obj in scene.robot_state.attached_collision_objects:
-            cumotion_objects, supported_objects = self.get_cumotion_collision_object(obj.object)
+            collision_objects, supported_objects = self.get_cumotion_collision_object(obj.object)
             if supported_objects:
-                ee_pose = self.motion_gen.compute_kinematics(start_state).ee_pose
-                self.motion_gen.attach_external_objects_to_robot(
-                    start_state,
-                    cumotion_objects,
-                    link_name=obj.link_name,
-                    world_objects_pose_offset=ee_pose,
-                )
+                objs.extend(collision_objects)
+        if objs:
+            self.get_logger().info(f'Attach object to link {obj.link_name}')
+            ee_pose = self.motion_gen.compute_kinematics(start_state).ee_pose
+            self.motion_gen.attach_external_objects_to_robot(
+                start_state,
+                objs,
+                link_name=obj.link_name,
+                world_objects_pose_offset=ee_pose,
+            )
 
         if len(plan_req.goal_constraints[0].joint_constraints) > 0:
             self.get_logger().info('Calculating goal pose from Joint target')
