@@ -20,26 +20,30 @@ import os
 
 from setuptools import find_packages, setup
 
-package_name = 'isaac_ros_cumotion_robot_description'
+package_name = "isaac_ros_cumotion_robot_description"
 
 setup(
     name=package_name,
-    version='3.0.0',
-    packages=find_packages(exclude=['test']),
+    version="3.0.0",
+    packages=find_packages(exclude=["test"]),
     data_files=[
-        ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml']),
+        ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
+        ("share/" + package_name, ["package.xml"]),
         (
-            os.path.join('share', package_name, 'xrdf'),
-            glob(os.path.join('xrdf', '*.xrdf')),
+            os.path.join("share", package_name, "xrdf"),
+            glob(os.path.join("xrdf", "*.xrdf")),
+        ),
+        (
+            os.path.join("share", package_name, "urdf"),
+            glob(os.path.join("urdf", "*.urdf")),
         ),
     ],
-    install_requires=['setuptools'],
+    install_requires=["setuptools"],
     zip_safe=True,
-    maintainer='Isaac ROS Maintainers',
-    maintainer_email='isaac-ros-maintainers@nvidia.com',
-    description='Package containing XRDF (extended robot description format) files for '
-                'various robots',
-    license='Apache-2.0',
-    tests_require=['pytest'],
+    maintainer="Isaac ROS Maintainers",
+    maintainer_email="isaac-ros-maintainers@nvidia.com",
+    description="Package containing XRDF (extended robot description format) files for "
+    "various robots",
+    license="Apache-2.0",
+    tests_require=["pytest"],
 )

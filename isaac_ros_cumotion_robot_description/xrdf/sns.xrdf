@@ -1,0 +1,233 @@
+format: xrdf
+format_version: 1.0
+
+modifiers:
+  - set_base_frame: "sns_base_link"
+
+default_joint_positions:
+  ra_shoulder_pan_joint: 0.0
+  ra_shoulder_lift_joint: -1.25
+  ra_elbow_joint: 2.0
+  ra_wrist_1_joint: -0.733
+  ra_wrist_2_joint: 1.5708
+  ra_wrist_3_joint: -3.1416
+  la_shoulder_pan_joint: 0.0
+  la_shoulder_lift_joint: -1.89
+  la_elbow_joint: -2.0
+  la_wrist_1_joint: -2.4
+  la_wrist_2_joint: -1.5708
+  la_wrist_3_joint: 3.1416
+  rh_WRJ1: 0.0
+  rh_WRJ2: 0.0
+  lh_WRJ1: 0.0
+  lh_WRJ2: 0.0
+
+cspace:
+  joint_names:
+    - "ra_shoulder_pan_joint"
+    - "ra_shoulder_lift_joint"
+    - "ra_elbow_joint"
+    - "ra_wrist_1_joint"
+    - "ra_wrist_2_joint"
+    - "ra_wrist_3_joint"
+    - "la_shoulder_pan_joint"
+    - "la_shoulder_lift_joint"
+    - "la_elbow_joint"
+    - "la_wrist_1_joint"
+    - "la_wrist_2_joint"
+    - "la_wrist_3_joint"
+    - "rh_WRJ1"
+    - "rh_WRJ2"
+    - "lh_WRJ1"
+    - "lh_WRJ2"
+  acceleration_limits:
+    [
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+      12.0,
+    ]
+  jerk_limits:
+    [
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+      500.0,
+    ]
+
+tool_frames:
+  [
+    "ra_tool0",
+    "la_tool0",
+    "rh_fftip",
+    "rh_mftip",
+    "rh_rftip",
+    "rh_lftip",
+    "rh_thtip",
+    "rh_manipulator",
+    "lh_fftip",
+    "lh_mftip",
+    "lh_rftip",
+    "lh_lftip",
+    "lh_thtip",
+    "lh_manipulator",
+  ]
+
+collision:
+  geometry: "sns_collision_spheres"
+  buffer_distance:
+    ra_shoulder_link: 0.01
+    ra_upper_arm_link: 0.01
+    ra_forearm_link: 0.01
+    ra_wrist_1_link: 0.01
+    ra_wrist_2_link: 0.01
+    ra_wrist_3_link: 0.01
+    ra_tool0: 0.01
+    la_shoulder_link: 0.01
+    la_upper_arm_link: 0.01
+    la_forearm_link: 0.01
+    la_wrist_1_link: 0.01
+    la_wrist_2_link: 0.01
+    la_wrist_3_link: 0.01
+    la_tool0: 0.01
+
+self_collision:
+  geometry: "sns_collision_spheres"
+  buffer_distance:
+    ra_shoulder_link: 0.07
+    la_shoulder_link: 0.07
+    ra_tool0: 0.05
+    la_tool0: 0.05
+  ignore:
+    ra_upper_arm_link: ["ra_forearm_link", "ra_shoulder_link"]
+    ra_forearm_link: ["ra_wrist_1_link"]
+    ra_wrist_1_link: ["ra_wrist_2_link", "ra_wrist_3_link"]
+    ra_wrist_2_link: ["ra_wrist_3_link", "ra_tool0"]
+    ra_wrist_3_link: ["ra_tool0"]
+    la_upper_arm_link: ["la_forearm_link", "la_shoulder_link"]
+    la_forearm_link: ["la_wrist_1_link"]
+    la_wrist_1_link: ["la_wrist_2_link", "la_wrist_3_link"]
+    la_wrist_2_link: ["la_wrist_3_link", "la_tool0"]
+    la_wrist_3_link: ["la_tool0"]
+
+geometry:
+  sns_collision_spheres:
+    spheres:
+      ra_shoulder_link:
+        - center: [0, 0, 0]
+          radius: 0.05
+      ra_upper_arm_link:
+        - center: [-0, -0, 0.18]
+          radius: 0.09
+        - center: [-0.102167, 0, 0.18]
+          radius: 0.05
+        - center: [-0.204333, 0, 0.18]
+          radius: 0.05
+        - center: [-0.3065, 0, 0.18]
+          radius: 0.05
+        - center: [-0.408667, 0, 0.18]
+          radius: 0.05
+        - center: [-0.510833, 0, 0.18]
+          radius: 0.05
+        - center: [-0.613, 0, 0.18]
+          radius: 0.07
+      ra_forearm_link:
+        - center: [-0, 0, 0.03]
+          radius: 0.05
+        - center: [-0.0951667, 0, 0.03]
+          radius: 0.05
+        - center: [-0.190333, 0, 0.03]
+          radius: 0.05
+        - center: [-0.2855, 0, 0.03]
+          radius: 0.05
+        - center: [-0.380667, 0, 0.03]
+          radius: 0.05
+        - center: [-0.475833, 0, 0.03]
+          radius: 0.05
+        - center: [-0.571, -1.19904e-17, 0.03]
+          radius: 0.05
+      ra_wrist_1_link:
+        - center: [0, 0, 0]
+          radius: 0.05
+      ra_wrist_2_link:
+        - center: [0, 0, 0]
+          radius: 0.05
+      ra_wrist_3_link:
+        - center: [0, 0, 0]
+          radius: 0.05
+        - center: [0, 0, 0.06]
+          radius: 0.07
+      ra_tool0:
+        - center: [0, 0, 0.12]
+          radius: -0.01
+      la_shoulder_link:
+        - center: [0, 0, 0]
+          radius: 0.05
+      la_upper_arm_link:
+        - center: [-0, -0, 0.18]
+          radius: 0.09
+        - center: [-0.102167, 0, 0.18]
+          radius: 0.05
+        - center: [-0.204333, 0, 0.18]
+          radius: 0.05
+        - center: [-0.3065, 0, 0.18]
+          radius: 0.05
+        - center: [-0.408667, 0, 0.18]
+          radius: 0.05
+        - center: [-0.510833, 0, 0.18]
+          radius: 0.05
+        - center: [-0.613, 0, 0.18]
+          radius: 0.07
+      la_forearm_link:
+        - center: [-0, 0, 0.03]
+          radius: 0.05
+        - center: [-0.0951667, 0, 0.03]
+          radius: 0.05
+        - center: [-0.190333, 0, 0.03]
+          radius: 0.05
+        - center: [-0.2855, 0, 0.03]
+          radius: 0.05
+        - center: [-0.380667, 0, 0.03]
+          radius: 0.05
+        - center: [-0.475833, 0, 0.03]
+          radius: 0.05
+        - center: [-0.571, -1.19904e-17, 0.03]
+          radius: 0.05
+      la_wrist_1_link:
+        - center: [0, 0, 0]
+          radius: 0.05
+      la_wrist_2_link:
+        - center: [0, 0, 0]
+          radius: 0.05
+      la_wrist_3_link:
+        - center: [0, 0, 0]
+          radius: 0.05
+        - center: [0, 0, 0.06]
+          radius: 0.07
+      la_tool0:
+        - center: [0, 0, 0.12]
+          radius: -0.01
