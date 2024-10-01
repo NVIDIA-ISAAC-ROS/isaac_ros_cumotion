@@ -251,9 +251,9 @@ class CumotionActionServer(Node):
         self.get_logger().info('Calling ESDF service')
         # This is half of x,y and z dims
         aabb_min = Point()
-        aabb_min.x = -1 * self.__voxel_dims[0] / 2
-        aabb_min.y = -1 * self.__voxel_dims[1] / 2
-        aabb_min.z = -1 * self.__voxel_dims[2] / 2
+        aabb_min.x = (-0.5 * self.__voxel_dims[0]) + self.__grid_position[0]
+        aabb_min.y = (-0.5 * self.__voxel_dims[1]) + self.__grid_position[1]
+        aabb_min.z = (-0.5 * self.__voxel_dims[2]) + self.__grid_position[2]
         # This is a voxel size.
         voxel_dims = Vector3()
         voxel_dims.x = self.__voxel_dims[0]
