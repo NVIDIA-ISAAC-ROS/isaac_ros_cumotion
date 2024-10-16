@@ -29,13 +29,13 @@ from curobo.wrap.reacher.motion_gen import MotionGen
 from curobo.wrap.reacher.motion_gen import MotionGenConfig
 from curobo.wrap.reacher.motion_gen import MotionGenPlanConfig
 from curobo.wrap.reacher.motion_gen import MotionGenStatus
+from curobo.rollout.cost.pose_cost import PoseCostMetric
+from curobo.rollout.dynamics_model.kinematic_model import KinematicModelState
 from geometry_msgs.msg import Point
 from geometry_msgs.msg import Vector3
 from isaac_ros_cumotion.xrdf_utils import convert_xrdf_to_curobo
 from moveit_msgs.action import MoveGroup
-from moveit_msgs.msg import CollisionObject
-from moveit_msgs.msg import MoveItErrorCodes
-from moveit_msgs.msg import RobotTrajectory
+from moveit_msgs.msg import MotionPlanRequest, AttachedCollisionObject, CollisionObject, MoveItErrorCodes, RobotTrajectory
 import numpy as np
 from nvblox_msgs.srv import EsdfAndGradients
 import rclpy
@@ -454,6 +454,7 @@ class CumotionActionServer(Node):
             cylinder_list = []
             mesh_list = []
             for i, obj in enumerate(moveit_objects):
+                self.get_logger().info(f'Processing object {obj.id}')
                 cumotion_objects, world_update_status = self.get_cumotion_collision_object(obj)
                 for cumotion_object in cumotion_objects:
                     if isinstance(cumotion_object, Cuboid):
@@ -500,7 +501,7 @@ class CumotionActionServer(Node):
                 'time_dilation_factor').get_parameter_value().double_value
         self.get_logger().info('Planning with time_dilation_factor: ' +
                                str(time_dilation_factor))
-        plan_req = goal_handle.request.request
+        plan_req: MotionPlanRequest = goal_handle.request.request
         goal_handle.succeed()
 
         scene = goal_handle.request.planning_options.planning_scene_diff
@@ -514,6 +515,7 @@ class CumotionActionServer(Node):
             self.get_logger().error('World update failed.')
             return result
         start_state = None
+        goal_state = None
         if len(plan_req.start_state.joint_state.position) > 0:
             start_state = self.motion_gen.get_active_js(
                 CuJointState.from_position(
@@ -527,6 +529,29 @@ class CumotionActionServer(Node):
             self.get_logger().info(
                 'PlanRequest start state was empty, reading current joint state'
             )
+        if len(plan_req.goal_constraints) > 0:
+            self.get_logger().info('Calculating goal pose from Joint target')
+            goal_config = [
+                plan_req.goal_constraints[0].joint_constraints[x].position
+                for x in range(len(plan_req.goal_constraints[0].joint_constraints))
+            ]
+            goal_jnames = [
+                plan_req.goal_constraints[0].joint_constraints[x].joint_name
+                for x in range(len(plan_req.goal_constraints[0].joint_constraints))
+            ]
+
+            goal_state = self.motion_gen.get_active_js(
+                CuJointState.from_position(
+                    position=self.tensor_args.to_device(goal_config).view(1, -1),
+                    joint_names=goal_jnames,
+                )
+            )
+        else:
+            self.get_logger().info(
+                'PlanRequest goal state was empty. Exiting'
+            )
+            result.error_code.val = MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS
+            return result
         if start_state is None or plan_req.start_state.is_diff:
             if self.__js_buffer is None:
                 self.get_logger().error(
@@ -547,80 +572,41 @@ class CumotionActionServer(Node):
             else:
                 start_state = current_joint_state
 
-        if len(plan_req.goal_constraints[0].joint_constraints) > 0:
-            self.get_logger().info('Calculating goal pose from Joint target')
-            goal_config = [
-                plan_req.goal_constraints[0].joint_constraints[x].position
-                for x in range(len(plan_req.goal_constraints[0].joint_constraints))
-            ]
-            goal_jnames = [
-                plan_req.goal_constraints[0].joint_constraints[x].joint_name
-                for x in range(len(plan_req.goal_constraints[0].joint_constraints))
-            ]
-
-            goal_state = self.motion_gen.get_active_js(
-                CuJointState.from_position(
-                    position=self.tensor_args.to_device(goal_config).view(1, -1),
-                    joint_names=goal_jnames,
-                )
+        # Checking if there is anything attached
+        obj: AttachedCollisionObject
+        link_name = "tcp"
+        # attach object to end effector:
+        objs = []
+        for obj in scene.robot_state.attached_collision_objects:
+            obj.object.pose.position.z += 0.1
+            collision_objects, supported_objects = self.get_cumotion_collision_object(obj.object)
+            if supported_objects:
+                objs.extend(collision_objects)
+        if objs:
+            self.get_logger().info(f'Attach object to link {obj.link_name}')
+            ee_pose: Pose = self.motion_gen.compute_kinematics(start_state).ee_pose
+            link_name = obj.link_name
+            self.motion_gen.attach_external_objects_to_robot(
+                start_state,
+                objs,
+                link_name=obj.link_name,
+                world_objects_pose_offset=ee_pose,
             )
-            goal_pose = self.motion_gen.compute_kinematics(goal_state).ee_pose.clone()
-        elif (
-            len(plan_req.goal_constraints[0].position_constraints) > 0
-            and len(plan_req.goal_constraints[0].orientation_constraints) > 0
-        ):
-            self.get_logger().info('Using goal from Pose')
 
-            position = (
-                plan_req.goal_constraints[0]
-                .position_constraints[0]
-                .constraint_region.primitive_poses[0]
-                .position
-            )
-            position = [position.x, position.y, position.z]
-            orientation = plan_req.goal_constraints[0].orientation_constraints[0].orientation
-            orientation = [orientation.w, orientation.x, orientation.y, orientation.z]
-            pose_list = position + orientation
-            goal_pose = Pose.from_list(pose_list, tensor_args=self.tensor_args)
-
-            # Check if link names match:
-            position_link_name = plan_req.goal_constraints[0].position_constraints[0].link_name
-            orientation_link_name = (
-                plan_req.goal_constraints[0].orientation_constraints[0].link_name
-            )
-            plan_link_name = self.motion_gen.kinematics.ee_link
-            if position_link_name != orientation_link_name:
-                self.get_logger().error(
-                    'Link name for Target Position "'
-                    + position_link_name
-                    + '" and Target Orientation "'
-                    + orientation_link_name
-                    + '" do not match'
-                )
-                result.error_code.val = MoveItErrorCodes.INVALID_LINK_NAME
-                return result
-            if position_link_name != plan_link_name:
-                self.get_logger().error(
-                    'Link name for Target Pose "'
-                    + position_link_name
-                    + '" and Planning frame "'
-                    + plan_link_name
-                    + '" do not match, relaunch node with tool_frame = '
-                    + position_link_name
-                )
-                result.error_code.val = MoveItErrorCodes.INVALID_LINK_NAME
-                return result
-        else:
-            self.get_logger().error('Goal constraints not supported')
-
+        world_update_status = self.update_world_objects(world_objects)
         self.motion_gen.reset(reset_seed=False)
-        motion_gen_result = self.motion_gen.plan_single(
+        pose_cost = PoseCostMetric(
+            hold_partial_pose=True,
+            hold_vec_weight=torch.tensor([1.0, 1.0, 0.0, 0.0, 0.0, 0.0]))
+        self.get_logger().info(f'Planning with cost metric {pose_cost}')
+        motion_gen_result = self.motion_gen.plan_single_js(
             start_state,
-            goal_pose,
+            goal_state,
             MotionGenPlanConfig(max_attempts=5, enable_graph_attempt=1,
-                                time_dilation_factor=time_dilation_factor),
+                                time_dilation_factor=time_dilation_factor,
+                                pose_cost_metric=pose_cost),
         )
-
+        self.motion_gen.detach_spheres_from_robot(link_name)
         result = MoveGroup.Result()
         if motion_gen_result.success.item():
             result.error_code.val = MoveItErrorCodes.SUCCESS
