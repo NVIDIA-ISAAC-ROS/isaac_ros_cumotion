@@ -23,7 +23,7 @@ cspace:
   acceleration_limits: [12.0, 12.0, 12.0, 12.0, 12.0, 12.0]
   jerk_limits: [500.0, 500.0, 500.0, 500.0, 500.0, 500.0]
 
-tool_frames: ["tool0"]
+tool_frames: ["tcp"]
 
 collision:
   geometry: "ur10e_collision_spheres"
@@ -34,19 +34,19 @@ collision:
     wrist_1_link: 0.01
     wrist_2_link: 0.01
     wrist_3_link: 0.01
-    tool0: 0.01
+    tcp: 0.01
 
 self_collision:
   geometry: "ur10e_collision_spheres"
   buffer_distance:
     shoulder_link: 0.07
-    tool0: 0.05
+    tcp: 0.05
   ignore:
     upper_arm_link: ["forearm_link", "shoulder_link"]
     forearm_link: ["wrist_1_link"]
     wrist_1_link: ["wrist_2_link","wrist_3_link"]
-    wrist_2_link: ["wrist_3_link", "tool0"]
-    wrist_3_link: ["tool0"]
+    wrist_2_link: ["wrist_3_link", "tcp"]
+    wrist_3_link: ["tcp"]
 
 geometry:
   ur10e_collision_spheres:
@@ -95,6 +95,10 @@ geometry:
           radius: 0.05
         - center: [0, 0, 0.06]
           radius: 0.07
-      tool0:
-        - center: [0, 0, 0.12]
-          radius: -0.01
+      tcp:
+        - center: [0.0, 0.0, 0.0]
+          radius: 0.01
+        - center: [0.0, 0.12, 0.0]
+          radius: 0.01
+        - center: [0.0, -0.12, 0.0]
+          radius: 0.01

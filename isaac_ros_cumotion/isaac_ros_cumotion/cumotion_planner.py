@@ -546,6 +546,8 @@ class CumotionActionServer(Node):
                     joint_names=goal_jnames,
                 )
             )
+            goal_pose = self.motion_gen.compute_kinematics(goal_state).ee_pose.clone()
+            self.get_logger().info('Goal pose: ' + str(goal_pose))
         else:
             self.get_logger().info(
                 'PlanRequest goal state was empty. Exiting'
@@ -597,14 +599,22 @@ class CumotionActionServer(Node):
         self.motion_gen.reset(reset_seed=False)
         pose_cost = PoseCostMetric(
             hold_partial_pose=True,
-            hold_vec_weight=torch.tensor([1.0, 1.0, 0.0, 0.0, 0.0, 0.0]))
+            hold_vec_weight=self.motion_gen.tensor_args.to_device([1, 1, 0, 0, 0, 0])
+        )
         self.get_logger().info(f'Planning with cost metric {pose_cost}')
-        motion_gen_result = self.motion_gen.plan_single_js(
+        plan_config = MotionGenPlanConfig(
+            enable_graph=True,
+            need_graph_success=True,
+            max_attempts=60,
+            enable_graph_attempt=4,
+            time_dilation_factor=time_dilation_factor,
+            enable_finetune_trajopt=True,
+            pose_cost_metric=pose_cost,
+        )
+        motion_gen_result = self.motion_gen.plan_single(
             start_state,
-            goal_state,
-            MotionGenPlanConfig(max_attempts=5, enable_graph_attempt=1,
-                                time_dilation_factor=time_dilation_factor,
-                                pose_cost_metric=pose_cost),
+            goal_pose,
+            plan_config=plan_config
         )
         self.motion_gen.detach_spheres_from_robot(link_name)
         result = MoveGroup.Result()
