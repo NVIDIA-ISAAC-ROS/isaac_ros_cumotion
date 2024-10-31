@@ -546,7 +546,8 @@ class CumotionActionServer(Node):
                     joint_names=goal_jnames,
                 )
             )
-            goal_pose = self.motion_gen.compute_kinematics(goal_state).ee_pose.clone()
+            goal_ik = self.motion_gen.compute_kinematics(goal_state)
+            goal_pose = goal_ik.ee_pose.clone()
             self.get_logger().info('Goal pose: ' + str(goal_pose))
         else:
             self.get_logger().info(
@@ -611,9 +612,19 @@ class CumotionActionServer(Node):
             enable_finetune_trajopt=True,
             pose_cost_metric=pose_cost,
         )
-        motion_gen_result = self.motion_gen.plan_single(
+
+        valid_query = self.motion_gen.update_pose_cost_metric(
+            plan_config.pose_cost_metric, start_state, goal_pose
+        )
+        if not valid_query:
+            self.get_logger().info(
+                'pose_cost_metric is invalid, exiting'
+            )
+            result.error_code.val = MoveItErrorCodes.INVALID_MOTION_PLAN
+            return result
+        motion_gen_result = self.motion_gen.plan_single_js(
             start_state,
-            goal_pose,
+            goal_state,
             plan_config=plan_config
         )
         self.motion_gen.detach_spheres_from_robot(link_name)
