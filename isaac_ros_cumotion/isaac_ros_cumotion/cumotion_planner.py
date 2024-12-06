@@ -215,24 +215,7 @@ class CumotionActionServer(Node):
         self.get_logger().info("warming up cuMotion, wait until ready")
 
         tensor_args = self.tensor_args
-        world_file = WorldConfig.from_dict(
-            {
-                "cuboid": {
-                    "table": {
-                        "pose": [0, 0, -0.05, 1, 0, 0, 0],  # x, y, z, qw, qx, qy, qz
-                        "dims": [2.0, 2.0, 0.1],
-                    }
-                },
-                "voxel": {
-                    "world_voxel": {
-                        "dims": self.__voxel_dims,
-                        "pose": [0, 0, 0, 1, 0, 0, 0],  # x, y, z, qw, qx, qy, qz
-                        "voxel_size": self.__voxel_size,
-                        "feature_dtype": torch.bfloat16,
-                    },
-                },
-            }
-        )
+        world_cfg = WorldConfig()
 
         if robot_file.lower().endswith(".xrdf"):
             if self.__urdf_path is None:
@@ -253,14 +236,14 @@ class CumotionActionServer(Node):
         robot_dict = robot_dict["robot_cfg"]
         motion_gen_config = MotionGenConfig.load_from_robot_config(
             robot_dict,
-            world_file,
+            world_cfg,
             tensor_args,
             interpolation_dt=interpolation_dt,
             collision_cache={
                 "obb": collision_cache_cuboid,
                 "mesh": collision_cache_mesh,
             },
-            collision_checker_type=CollisionCheckerType.VOXEL,
+            collision_checker_type=CollisionCheckerType.MESH,
             ee_link_name=self.__tool_frame,
         )
 

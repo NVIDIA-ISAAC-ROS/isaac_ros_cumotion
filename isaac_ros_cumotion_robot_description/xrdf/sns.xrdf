@@ -106,33 +106,37 @@ collision:
     ra_wrist_1_link: 0.01
     ra_wrist_2_link: 0.01
     ra_wrist_3_link: 0.01
-    ra_tool0: 0.01
+    rh_forearm: 0.01
+    rh_palm: 0.01
     la_shoulder_link: 0.01
     la_upper_arm_link: 0.01
     la_forearm_link: 0.01
     la_wrist_1_link: 0.01
     la_wrist_2_link: 0.01
     la_wrist_3_link: 0.01
-    la_tool0: 0.01
+    lh_forearm: 0.01
+    lh_palm: 0.0
 
 self_collision:
   geometry: "sns_collision_spheres"
   buffer_distance:
     ra_shoulder_link: 0.07
+    rh_forearm: 0.03
     la_shoulder_link: 0.07
-    ra_tool0: 0.05
-    la_tool0: 0.05
+    lh_forearm: 0.03
   ignore:
     ra_upper_arm_link: ["ra_forearm_link", "ra_shoulder_link"]
     ra_forearm_link: ["ra_wrist_1_link"]
     ra_wrist_1_link: ["ra_wrist_2_link", "ra_wrist_3_link"]
-    ra_wrist_2_link: ["ra_wrist_3_link", "ra_tool0"]
-    ra_wrist_3_link: ["ra_tool0"]
+    ra_wrist_2_link: ["ra_wrist_3_link", "rh_forearm"]
+    ra_wrist_3_link: ["rh_forearm"]
+    rh_forearm: ["rh_palm"]
     la_upper_arm_link: ["la_forearm_link", "la_shoulder_link"]
     la_forearm_link: ["la_wrist_1_link"]
     la_wrist_1_link: ["la_wrist_2_link", "la_wrist_3_link"]
-    la_wrist_2_link: ["la_wrist_3_link", "la_tool0"]
-    la_wrist_3_link: ["la_tool0"]
+    la_wrist_2_link: ["la_wrist_3_link", "lh_forearm"]
+    la_wrist_3_link: ["lh_forearm"]
+    lh_forearm: ["lh_palm"]
 
 geometry:
   sns_collision_spheres:
@@ -181,9 +185,36 @@ geometry:
           radius: 0.05
         - center: [0, 0, 0.06]
           radius: 0.07
-      ra_tool0:
-        - center: [0, 0, 0.12]
-          radius: -0.01
+      rh_forearm:
+        - center: [-0.0, -0.0, 0.051]
+          radius: 0.079
+        - center: [-0.0, 0.0, 0.142]
+          radius: 0.079
+      rh_palm:
+        - center: [-0.021, 0.0, 0.0]
+          radius: 0.02
+        - center: [-0.021, 0.0, 0.176]
+          radius: 0.02
+        - center: [-0.021, 0.0, 0.035]
+          radius: 0.02
+        - center: [-0.021, 0.0, 0.07]
+          radius: 0.02
+        - center: [-0.021, 0.0, 0.106]
+          radius: 0.02
+        - center: [-0.021, 0.0, 0.141]
+          radius: 0.02
+        - center: [0.027, 0.0, 0.0]
+          radius: 0.02
+        - center: [0.027, 0.0, 0.182]
+          radius: 0.02
+        - center: [0.027, 0.0, 0.036]
+          radius: 0.02
+        - center: [0.027, 0.0, 0.073]
+          radius: 0.02
+        - center: [0.027, 0.0, 0.109]
+          radius: 0.02
+        - center: [0.027, 0.0, 0.146]
+          radius: 0.02
       la_shoulder_link:
         - center: [0, 0, 0]
           radius: 0.05
@@ -228,6 +259,33 @@ geometry:
           radius: 0.05
         - center: [0, 0, 0.06]
           radius: 0.07
-      la_tool0:
-        - center: [0, 0, 0.12]
-          radius: -0.01
+      lh_forearm:
+        - center: [-0.0, -0.0, 0.051]
+          radius: 0.079
+        - center: [-0.0, 0.0, 0.142]
+          radius: 0.079
+      lh_palm:
+        - center: [-0.021, 0.0, 0.0]
+          radius: 0.02
+        - center: [-0.021, 0.0, 0.176]
+          radius: 0.02
+        - center: [-0.021, 0.0, 0.035]
+          radius: 0.02
+        - center: [-0.021, 0.0, 0.07]
+          radius: 0.02
+        - center: [-0.021, 0.0, 0.106]
+          radius: 0.02
+        - center: [-0.021, 0.0, 0.141]
+          radius: 0.02
+        - center: [0.027, 0.0, 0.0]
+          radius: 0.02
+        - center: [0.027, 0.0, 0.182]
+          radius: 0.02
+        - center: [0.027, 0.0, 0.036]
+          radius: 0.02
+        - center: [0.027, 0.0, 0.073]
+          radius: 0.02
+        - center: [0.027, 0.0, 0.109]
+          radius: 0.02
+        - center: [0.027, 0.0, 0.146]
+          radius: 0.02
