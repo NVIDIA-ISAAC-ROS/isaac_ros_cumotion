@@ -2,12 +2,14 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>isaac_ros_esdf_visualizer</name>
-  <version>3.1.0</version>
+  <version>3.2.0</version>
   <description>Package for ESDF Voxel visualizer.</description>
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
   <license>Apache-2.0</license>
+  <build_depend>isaac_ros_common</build_depend>
 
   <exec_depend>curobo_core</exec_depend>
+  <exec_depend>isaac_ros_cumotion_python_utils</exec_depend>
   <exec_depend>nvblox_msgs</exec_depend>
 
   <test_depend>ament_copyright</test_depend>

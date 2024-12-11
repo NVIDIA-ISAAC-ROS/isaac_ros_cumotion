@@ -1,11 +1,19 @@
 /**:
   ros__parameters:
     robot: ""
+    urdf_path: ""
+    yml_file_path: ""
     time_dilation_factor: 0.5
-    collision_cache_mesh: 20
+    max_attempts: 10
+    num_graph_seeds: 6
+    num_trajopt_seeds: 6
+    include_trajopt_retract_seed: True
+    num_trajopt_time_steps: 32
+    interpolation_dt: 0.025
     collision_cache_cuboid: 20
-    interpolation_dt: 0.02
-    voxel_dims: [2.0, 2.0, 2.0]
+    collision_cache_mesh: 20
+    workspace_file_path: ''
+    grid_size_m: [2.0, 2.0, 2.0]
     voxel_size: 0.05
     read_esdf_world: False
     publish_curobo_world_as_voxels: False
@@ -13,8 +21,8 @@
     publish_voxel_size: 0.05
     max_publish_voxels: 50000
     tool_frame: ""
-    grid_position: [0.0, 0.0, 0.0]
+    grid_center_m: [0.0, 0.0, 0.0]
     esdf_service_name: "/nvblox_node/get_esdf_and_gradient"
-    urdf_path: ""
     enable_curobo_debug_mode: False
     override_moveit_scaling_factors: False
+    update_link_sphere_server: 'planner_attach_object'

@@ -15,13 +15,13 @@ from curobo.types.base import TensorDeviceType
 from curobo.types.camera import CameraObservation
 from curobo.types.math import Pose as CuPose
 from curobo.types.state import JointState as CuJointState
-from curobo.util_file import get_robot_configs_path
-from curobo.util_file import join_path
-from curobo.util_file import load_yaml
 from curobo.wrap.model.robot_segmenter import RobotSegmenter
+import cv2
 from cv_bridge import CvBridge
+from isaac_ros_common.qos import add_qos_parameter
+from isaac_ros_cumotion.update_kinematics import get_robot_config
+from isaac_ros_cumotion.update_kinematics import UpdateLinkSpheresServer
 from isaac_ros_cumotion.util import get_spheres_marker
-from isaac_ros_cumotion.xrdf_utils import convert_xrdf_to_curobo
 from message_filters import ApproximateTimeSynchronizer
 from message_filters import Subscriber
 import numpy as np
@@ -47,6 +47,8 @@ class CumotionRobotSegmenter(Node):
     def __init__(self):
         super().__init__('cumotion_robot_segmentation')
         self.declare_parameter('robot', 'ur5e.yml')
+        self.declare_parameter('urdf_path', rclpy.Parameter.Type.STRING)
+        self.declare_parameter('yml_file_path', rclpy.Parameter.Type.STRING)
         self.declare_parameter('cuda_device', 0)
         self.declare_parameter('distance_threshold', 0.1)
         self.declare_parameter('time_sync_slop', 0.1)
@@ -60,14 +62,39 @@ class CumotionRobotSegmenter(Node):
         self.declare_parameter('robot_mask_publish_topics', ['/cumotion/depth_1/robot_mask'])
         self.declare_parameter('world_depth_publish_topics', ['/cumotion/depth_1/world_depth'])
 
+        self.declare_parameter('filter_speckles_in_mask', False)
+        self.declare_parameter('max_filtered_speckles_size', 1250)
+
         self.declare_parameter('log_debug', False)
-        self.declare_parameter('urdf_path', rclpy.Parameter.Type.STRING)
+        self.declare_parameter('update_link_sphere_server',
+                               'segmenter_attach_object')
+
+        depth_qos = add_qos_parameter(self, 'DEFAULT', 'depth_qos')
+        depth_info_qos = add_qos_parameter(self, 'DEFAULT', 'depth_info_qos')
+        mask_qos = add_qos_parameter(self, 'DEFAULT', 'mask_qos')
+        world_depth_qos = add_qos_parameter(self, 'DEFAULT', 'world_depth_qos')
+
+        self.__robot_file = self.get_parameter('robot').get_parameter_value().string_value
 
         try:
             self.__urdf_path = self.get_parameter('urdf_path')
             self.__urdf_path = self.__urdf_path.get_parameter_value().string_value
+            if self.__urdf_path == '':
+                self.__urdf_path = None
         except rclpy.exceptions.ParameterUninitializedException:
             self.__urdf_path = None
+
+        try:
+            self.__yml_path = self.get_parameter('yml_file_path')
+            self.__yml_path = self.__yml_path.get_parameter_value().string_value
+            if self.__yml_path == '':
+                self.__yml_path = None
+        except rclpy.exceptions.ParameterUninitializedException:
+            self.__yml_path = None
+
+        # If a YAML path is provided, override other XRDF/YAML file name
+        if self.__yml_path is not None:
+            self.__robot_file = self.__yml_path
 
         distance_threshold = (
             self.get_parameter('distance_threshold').get_parameter_value().double_value)
@@ -89,6 +116,13 @@ class CumotionRobotSegmenter(Node):
         world_depth_topics = (
             self.get_parameter(
                 'world_depth_publish_topics').get_parameter_value().string_array_value)
+        self._filter_speckles_in_mask = (
+            self.get_parameter('filter_speckles_in_mask').get_parameter_value().bool_value
+        )
+        self._max_filtered_speckles_size = self.get_parameter(
+            'max_filtered_speckles_size').get_parameter_value().integer_value
+        self._update_link_sphere_server = (
+            self.get_parameter('update_link_sphere_server').get_parameter_value().string_value)
 
         self._log_debug = self.get_parameter('log_debug').get_parameter_value().bool_value
         num_cameras = len(depth_image_topics)
@@ -109,7 +143,8 @@ class CumotionRobotSegmenter(Node):
         self._tensor_args = TensorDeviceType(device=torch.device('cuda', cuda_device_id))
 
         # Create subscribers:
-        subscribers = [Subscriber(self, Image, topic) for topic in depth_image_topics]
+        subscribers = [Subscriber(self, Image, topic, qos_profile=depth_qos)
+                       for topic in depth_image_topics]
         subscribers.append(Subscriber(self, JointState, joint_states_topic))
         # Subscribe to topics with sync:
         self.approx_time_sync = ApproximateTimeSynchronizer(
@@ -122,21 +157,19 @@ class CumotionRobotSegmenter(Node):
             self.info_subscribers.append(
                 self.create_subscription(
                     CameraInfo, depth_camera_infos[idx],
-                    lambda msg, index=idx: self.camera_info_cb(msg, index), 10)
+                    lambda msg, index=idx: self.camera_info_cb(msg, index), depth_info_qos)
             )
 
         self.mask_publishers = [
-            self.create_publisher(Image, topic, 10) for topic in publish_mask_topics]
+            self.create_publisher(Image, topic, mask_qos) for topic in publish_mask_topics]
         self.segmented_publishers = [
-            self.create_publisher(Image, topic, 10) for topic in world_depth_topics]
+            self.create_publisher(Image, topic, world_depth_qos) for topic in world_depth_topics]
 
         self.debug_robot_publisher = self.create_publisher(MarkerArray, debug_robot_topic, 10)
 
         self.tf_buffer = Buffer(cache_time=rclpy.duration.Duration(seconds=60.0))
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        # Create a depth mask publisher:
-        robot_file = self.get_parameter('robot').get_parameter_value().string_value
         self.br = CvBridge()
 
         # Create buffers to store data:
@@ -151,20 +184,24 @@ class CumotionRobotSegmenter(Node):
         self.lock = threading.Lock()
         self.timer = self.create_timer(0.01, self.on_timer)
 
-        robot_dict = load_yaml(join_path(get_robot_configs_path(), robot_file))
-        if robot_file.lower().endswith('.xrdf'):
-            if self.__urdf_path is None:
-                self.get_logger().fatal('urdf_path is required to load robot from .xrdf')
-                raise SystemExit
-            robot_dict = convert_xrdf_to_curobo(self.__urdf_path, robot_dict, self.get_logger())
-
-        if self.__urdf_path is not None:
-            robot_dict['robot_cfg']['kinematics']['urdf_path'] = self.__urdf_path
+        robot_config = get_robot_config(
+            robot_file=self.__robot_file,
+            urdf_file_path=self.__urdf_path,
+            logger=self.get_logger()
+        )
 
         self._cumotion_segmenter = RobotSegmenter.from_robot_file(
-            robot_dict, distance_threshold=distance_threshold)
+            robot_config, distance_threshold=distance_threshold)
 
         self._cumotion_base_frame = self._cumotion_segmenter.base_link
+
+        self.__update_link_spheres_server = UpdateLinkSpheresServer(
+            server_node=self,
+            action_name=self._update_link_sphere_server,
+            robot_kinematics=self._cumotion_segmenter.robot_world.kinematics,
+            robot_base_frame=self._cumotion_base_frame
+        )
+
         self._robot_pose_cameras = None
         self.get_logger().info(f'Node initialized with {self._num_cameras} cameras')
 
@@ -210,16 +247,33 @@ class CumotionRobotSegmenter(Node):
             return True
         return False
 
-    def publish_images(self, depth_mask, segmented_depth, camera_header, idx: int):
+    def filter_depth_mask(self, robot_mask, depth_image):
+        # pixels with depth <= 0.0 are invalid
+        invalid_depth_value = 0.0
+        # get the invalid depth mask
+        invalid_depth_mask = depth_image <= invalid_depth_value
+        # combine the invalid depth and robot masks
+        combined_mask = np.logical_or(robot_mask, invalid_depth_mask).astype(np.uint8) * 255
+        # filter speckles from the combined mask
+        filtered_combined_mask = cv2.filterSpeckles(
+            combined_mask, 255, self._max_filtered_speckles_size, 0)[0]
+        # Set depth pixels to invalid if they are masked in the filtered mask
+        depth_image[filtered_combined_mask.astype(bool)] = invalid_depth_value
+        return (filtered_combined_mask, depth_image)
+
+    def publish_images(self, depth_masks, segmented_depth_images, camera_header, idx: int):
+        depth_mask = depth_masks[idx]
+        segmented_depth = segmented_depth_images[idx]
+
+        if self._filter_speckles_in_mask:
+            depth_mask, segmented_depth = self.filter_depth_mask(depth_mask, segmented_depth)
 
         if self.mask_publishers[idx].get_subscription_count() > 0:
-            depth_mask = depth_mask[idx]
             msg = self.br.cv2_to_imgmsg(depth_mask, 'mono8')
             msg.header = camera_header[idx]
             self.mask_publishers[idx].publish(msg)
 
         if self.segmented_publishers[idx].get_subscription_count() > 0:
-            segmented_depth = segmented_depth[idx]
             if self._depth_encoding[idx] == '16UC1':
                 segmented_depth = segmented_depth.astype(np.uint16)
             elif self._depth_encoding[idx] == '32FC1':
@@ -269,8 +323,9 @@ class CumotionRobotSegmenter(Node):
                             ]
                         )
                     except TransformException as ex:
-                        self.get_logger().debug(f'Could not transform {camera_headers[i].frame_id} \
-                            to { self._cumotion_base_frame}: {ex}')
+                        self.get_logger().debug(
+                            f'Could not transform {camera_headers[i].frame_id}'
+                            f'to { self._cumotion_base_frame}: {ex}')
                         continue
             if None not in self._robot_pose_camera:
                 self._robot_pose_cameras = CuPose.cat(self._robot_pose_camera)
@@ -317,6 +372,13 @@ class CumotionRobotSegmenter(Node):
         for x in range(depth_mask.shape[0]):
             self.publish_images(depth_mask, segmented_depth, camera_headers, x)
 
+        self.__update_link_spheres_server.publish_all_active_spheres(
+            robot_joint_states=js,
+            robot_joint_names=j_names,
+            tensor_args=self._tensor_args,
+            rgb=[1.0, 0.0, 0.0, 1.0]
+        )
+
         if self.debug_robot_publisher.get_subscription_count() > 0:
             self.publish_robot_spheres(q)
         if self._log_debug:
@@ -333,14 +395,19 @@ def main(args=None):
     # Create the node
     cumotion_segmenter = CumotionRobotSegmenter()
 
-    # Spin the node so the callback function is called.
-    rclpy.spin(cumotion_segmenter)
+    try:
+        # Spin the node so the callback function is called.
+        cumotion_segmenter.get_logger().info('Starting CumotionRobotSegmenter node')
+        rclpy.spin(cumotion_segmenter)
+    except KeyboardInterrupt:
+        cumotion_segmenter.get_logger().info('Destroying CumotionRobotSegmenter node')
 
     # Destroy the node explicitly
     cumotion_segmenter.destroy_node()
 
     # Shutdown the ROS client library for Python
-    rclpy.shutdown()
+    if rclpy.ok():
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':

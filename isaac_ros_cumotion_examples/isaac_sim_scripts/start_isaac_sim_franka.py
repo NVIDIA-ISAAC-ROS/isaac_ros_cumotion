@@ -277,6 +277,7 @@ try:
 except Exception as e:
     print(e)
 
+simulation_app.update()
 
 # Setting the /Franka target prim to Publish JointState node
 set_targets(

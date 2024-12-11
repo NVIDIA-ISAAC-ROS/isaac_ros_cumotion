@@ -1,0 +1,17 @@
+# Use this action to update the robot's kinematic model by attaching an object and defining its collision geometry with spheres.
+
+# Goal:
+# Set to true to attach the object, false to detach it.
+bool attach_object
+# Flattened array of spheres defining the collision geometry. Each sphere is defined by x, y, z coordinates and radius.
+float32[] flattened_sphere_arr
+# Name of the object's associated frame.
+string object_link_name
+---
+# Result:
+# Description of the final result (e.g., success or failure).
+string outcome
+---
+# Feedback:
+# Real-time status update during the action's execution.
+string status

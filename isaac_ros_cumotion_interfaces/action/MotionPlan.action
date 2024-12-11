@@ -1,0 +1,35 @@
+geometry_msgs/PoseArray goal_pose
+sensor_msgs/JointState goal_state
+sensor_msgs/JointState start_state
+moveit_msgs/PlanningSceneWorld world
+float32 time_dilation_factor
+float32[] hold_partial_pose_vec_weight
+float32[] grasp_partial_pose_vec_weight
+float32[] retract_partial_pose_vec_weight
+string[] disable_collision_links
+geometry_msgs/Pose grasp_offset_pose
+geometry_msgs/Pose retract_offset_pose
+bool update_esdf
+bool clear_esdf
+bool plan_cspace
+bool plan_pose
+bool visualize_trajectory
+bool execute_trajectory
+bool visualize_world
+bool use_current_state
+bool use_planning_scene
+bool hold_partial_pose
+bool plan_grasp
+bool plan_approach_to_grasp
+bool plan_grasp_to_retract
+bool grasp_approach_constraint_in_goal_frame
+bool retract_constraint_in_goal_frame
+---
+bool success
+string message
+int32 goal_index
+moveit_msgs/MoveItErrorCodes error_code
+moveit_msgs/RobotTrajectory[] planned_trajectory
+float32 planning_time
+---
+string status

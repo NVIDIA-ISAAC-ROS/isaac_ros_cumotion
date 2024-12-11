@@ -54,7 +54,7 @@ def generate_launch_description():
         name='cumotion_planner',
         package='isaac_ros_cumotion',
         namespace='',
-        executable='cumotion_planner_node',
+        executable='cumotion_goal_set_planner_node',
         parameters=[
             launch_configs
         ],

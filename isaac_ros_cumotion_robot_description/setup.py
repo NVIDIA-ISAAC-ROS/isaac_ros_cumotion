@@ -33,6 +33,10 @@ setup(
             os.path.join('share', package_name, 'xrdf'),
             glob(os.path.join('xrdf', '*.xrdf')),
         ),
+        (
+            os.path.join('share', package_name, 'urdf'),
+            glob(os.path.join('urdf', '*.urdf')),
+        ),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

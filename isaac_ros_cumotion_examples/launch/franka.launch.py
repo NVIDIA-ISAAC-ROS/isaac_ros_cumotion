@@ -36,6 +36,7 @@ def augment_moveit_config(moveit_config):
         config = yaml.safe_load(config_file)
     moveit_config.planning_pipelines['planning_pipelines'].append('isaac_ros_cumotion')
     moveit_config.planning_pipelines['isaac_ros_cumotion'] = config
+    moveit_config.planning_pipelines['default_planning_pipeline'] = 'isaac_ros_cumotion'
 
 
 def generate_launch_description():

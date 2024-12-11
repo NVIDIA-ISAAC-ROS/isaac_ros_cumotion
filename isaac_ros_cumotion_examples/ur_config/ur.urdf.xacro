@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="$(arg ur_type)">
+    <xacro:arg name="ur_type" default="ur"/>
+    <xacro:arg name="use_fake_hardware" default="true" />
+    <xacro:arg name="name" default="ur10e" />
+
+    <!-- Do not add ROS2 control from default UR package, add TopicBasedROS2 Control -->
+    <xacro:arg name="generate_ros2_control_tag" default="false" />
+
+    <!-- Import UR URDF file -->
+    <xacro:include filename="$(find isaac_ros_cumotion_examples)/ur_config/ur_sim.urdf.xacro" />
+
+    <!-- Import UR ros2_control description -->
+    <xacro:include filename="ur.ros2_control.xacro" />
+
+    <xacro:ur_ros2_control name="URFakeSystem" tf_prefix="" />
+</robot>

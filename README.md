@@ -46,6 +46,16 @@ The key advantages of using Isaac ROS cuMotion are:
 >    and be prepared to give necessary warnings, instructions, or take other necessary actions.
 > 5. Take extra caution when testing or deploying new features or code.
 
+Examples are provided for three modes of operation:
+
+* **Standalone MoveIt:** MoveIt’s RViz interface allows trajectories to be planned and visualized even without a physical
+  robot or external simulator.
+* **Simulated robot (Isaac Sim):** Trajectories may be planned and executed on a simulated robot in
+  [Isaac Sim](https://developer.nvidia.com/isaac/sim), allowing convenient development and rapid iteration without
+  use of physical hardware.  Simulated sensors enable testing of perception, e.g., for the purpose of collision avoidance.
+* **Physical robot:** For on-robot testing and final deployment, trajectories are planned and executed on a physical
+  robot.
+
 The Isaac ROS cuMotion repository currently contains the following packages:
 
 `isaac_ros_cumotion`:
@@ -78,6 +88,10 @@ Please visit the [Isaac ROS Documentation](https://nvidia-isaac-ros.github.io/re
   * [Quickstart](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion_moveit/index.html#quickstart)
   * [Try More Examples](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion_moveit/index.html#try-more-examples)
   * [Troubleshooting](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion_moveit/index.html#troubleshooting)
+* [`isaac_ros_cumotion_object_attachment`](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion_object_attachment/index.html)
+  * [Object Attachment](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion_object_attachment/index.html#object-attachment)
+  * [Troubleshooting](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion_object_attachment/index.html#troubleshooting)
+  * [API](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_cumotion_object_attachment/index.html#api)
 * [`isaac_ros_esdf_visualizer`](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_esdf_visualizer/index.html)
   * [Overview](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_esdf_visualizer/index.html#overview)
   * [API](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_esdf_visualizer/index.html#api)
@@ -88,4 +102,4 @@ Please visit the [Isaac ROS Documentation](https://nvidia-isaac-ros.github.io/re
 
 ## Latest
 
-Update 2024-09-26: Updated for Isaac ROS 3.1
+Update 2024-12-10: Added object following and pick-and-place workflows
