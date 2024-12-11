@@ -7,10 +7,12 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+from copy import deepcopy
 from os import path
+
+import threading
 import time
 
-from ament_index_python.packages import get_package_share_directory
 from curobo.geom.sdf.world import CollisionCheckerType
 from curobo.geom.types import Cuboid
 from curobo.geom.types import Cylinder
@@ -22,16 +24,17 @@ from curobo.types.base import TensorDeviceType
 from curobo.types.math import Pose
 from curobo.types.state import JointState as CuJointState
 from curobo.util.logger import setup_curobo_logger
-from curobo.util_file import get_robot_configs_path
-from curobo.util_file import join_path
-from curobo.util_file import load_yaml
 from curobo.wrap.reacher.motion_gen import MotionGen
 from curobo.wrap.reacher.motion_gen import MotionGenConfig
 from curobo.wrap.reacher.motion_gen import MotionGenPlanConfig
 from curobo.wrap.reacher.motion_gen import MotionGenStatus
 from geometry_msgs.msg import Point
 from geometry_msgs.msg import Vector3
-from isaac_ros_cumotion.xrdf_utils import convert_xrdf_to_curobo
+from isaac_ros_cumotion.update_kinematics import get_robot_config
+from isaac_ros_cumotion.update_kinematics import UpdateLinkSpheresServer
+from isaac_ros_cumotion_python_utils.utils import \
+    get_grid_center, get_grid_min_corner, get_grid_size, is_grid_valid, \
+    load_grid_corners_from_workspace_file
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import CollisionObject
 from moveit_msgs.msg import MoveItErrorCodes
@@ -45,7 +48,6 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from shape_msgs.msg import SolidPrimitive
-from std_msgs.msg import ColorRGBA
 import torch
 from trajectory_msgs.msg import JointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
@@ -58,26 +60,40 @@ class CumotionActionServer(Node):
         super().__init__('cumotion_action_server')
         self.tensor_args = TensorDeviceType()
         self.declare_parameter('robot', 'ur5e.yml')
+        self.declare_parameter('urdf_path', rclpy.Parameter.Type.STRING)
+        self.declare_parameter('yml_file_path', rclpy.Parameter.Type.STRING)
         self.declare_parameter('time_dilation_factor', 0.5)
+        self.declare_parameter('max_attempts', 10)
+        self.declare_parameter('num_graph_seeds', 6)
+        self.declare_parameter('num_trajopt_seeds', 6)
+        self.declare_parameter('include_trajopt_retract_seed', True)
+        self.declare_parameter('num_trajopt_time_steps', 32)
+        self.declare_parameter('trajopt_finetune_iters', 400)
+        self.declare_parameter('interpolation_dt', 0.025)
         self.declare_parameter('collision_cache_mesh', 20)
         self.declare_parameter('collision_cache_cuboid', 20)
-        self.declare_parameter('interpolation_dt', 0.02)
-        self.declare_parameter('voxel_dims', [2.0, 2.0, 2.0])
         self.declare_parameter('voxel_size', 0.05)
         self.declare_parameter('read_esdf_world', False)
         self.declare_parameter('publish_curobo_world_as_voxels', False)
         self.declare_parameter('add_ground_plane', False)
         self.declare_parameter('publish_voxel_size', 0.05)
-        self.declare_parameter('max_publish_voxels', 50000)
+        self.declare_parameter('max_publish_voxels', 500000)
         self.declare_parameter('joint_states_topic', '/joint_states')
         self.declare_parameter('tool_frame', rclpy.Parameter.Type.STRING)
 
-        self.declare_parameter('grid_position', [0.0, 0.0, 0.0])
+        # The grid_center_m and grid_size_m parameters are loaded from the workspace file
+        # if the workspace_file_path is set and valid.
+        self.declare_parameter('workspace_file_path', '')
+        self.declare_parameter('grid_center_m', [0.0, 0.0, 0.0])
+        self.declare_parameter('grid_size_m', [2.0, 2.0, 2.0])
+        self.declare_parameter('update_esdf_on_request', True)
+        self.declare_parameter('use_aabb_on_request', True)
 
         self.declare_parameter('esdf_service_name', '/nvblox_node/get_esdf_and_gradient')
-        self.declare_parameter('urdf_path', rclpy.Parameter.Type.STRING)
         self.declare_parameter('enable_curobo_debug_mode', False)
         self.declare_parameter('override_moveit_scaling_factors', False)
+        self.declare_parameter('update_link_sphere_server',
+                               'planner_attach_object')
         debug_mode = (
             self.get_parameter('enable_curobo_debug_mode').get_parameter_value().bool_value
         )
@@ -87,9 +103,10 @@ class CumotionActionServer(Node):
             setup_curobo_logger('warning')
 
         self.__voxel_pub = self.create_publisher(Marker, '/curobo/voxels', 10)
-        self._action_server = ActionServer(
-            self, MoveGroup, 'cumotion/move_group', self.execute_callback
-        )
+        self.planner_busy = False
+        self.lock = threading.Lock()
+
+        self.__robot_file = self.get_parameter('robot').get_parameter_value().string_value
 
         try:
             self.__urdf_path = self.get_parameter('urdf_path')
@@ -100,6 +117,17 @@ class CumotionActionServer(Node):
             self.__urdf_path = None
 
         try:
+            self.__yml_path = self.get_parameter('yml_file_path')
+            self.__yml_path = self.__yml_path.get_parameter_value().string_value
+            if self.__yml_path == '':
+                self.__yml_path = None
+        except rclpy.exceptions.ParameterUninitializedException:
+            self.__yml_path = None
+
+        # If a YAML path is provided, override other XRDF/YAML file name
+        if self.__yml_path is not None:
+            self.__robot_file = self.__yml_path
+        try:
             self.__tool_frame = self.get_parameter('tool_frame')
             self.__tool_frame = self.__tool_frame.get_parameter_value().string_value
             if self.__tool_frame == '':
@@ -107,9 +135,6 @@ class CumotionActionServer(Node):
         except rclpy.exceptions.ParameterUninitializedException:
             self.__tool_frame = None
 
-        self.__xrdf_path = path.join(
-            get_package_share_directory('isaac_ros_cumotion_robot_description'), 'xrdf'
-        )
         self.__joint_states_topic = (
             self.get_parameter('joint_states_topic').get_parameter_value().string_value
         )
@@ -119,6 +144,49 @@ class CumotionActionServer(Node):
         self.__override_moveit_scaling_factors = (
             self.get_parameter('override_moveit_scaling_factors').get_parameter_value().bool_value
         )
+
+        # Motion generation parameters
+
+        self.__max_attempts = (
+            self.get_parameter('max_attempts').get_parameter_value().integer_value
+        )
+        self.__num_graph_seeds = (
+            self.get_parameter('num_graph_seeds').get_parameter_value().integer_value
+        )
+        self.__num_trajopt_seeds = (
+            self.get_parameter('num_trajopt_seeds').get_parameter_value().integer_value
+        )
+        self.__num_trajopt_time_steps = (
+            self.get_parameter('num_trajopt_time_steps').get_parameter_value().integer_value
+        )
+        self.__trajopt_finetune_iters = (
+            self.get_parameter('trajopt_finetune_iters').get_parameter_value().integer_value
+        )
+        self.__interpolation_dt = (
+            self.get_parameter('interpolation_dt').get_parameter_value().double_value
+        )
+
+        include_trajopt_retract_seed = (
+            self.get_parameter('include_trajopt_retract_seed').get_parameter_value().bool_value
+        )
+        if include_trajopt_retract_seed:
+            self.__num_trajopt_noisy_seeds = 1
+            self.__trajopt_seed_ratio = {'linear': 1.0}
+        else:
+            self.__num_trajopt_noisy_seeds = 2
+            self.__trajopt_seed_ratio = {'linear': 0.5, 'bias': 0.5}
+
+        collision_cache_cuboid = (
+            self.get_parameter('collision_cache_cuboid').get_parameter_value().integer_value
+        )
+        collision_cache_mesh = (
+            self.get_parameter('collision_cache_mesh').get_parameter_value().integer_value
+        )
+        self.__collision_cache = {
+            'obb': collision_cache_cuboid,
+            'mesh': collision_cache_mesh
+        }
+
         # ESDF service
 
         self.__read_esdf_grid = (
@@ -127,21 +195,54 @@ class CumotionActionServer(Node):
         self.__publish_curobo_world_as_voxels = (
             self.get_parameter('publish_curobo_world_as_voxels').get_parameter_value().bool_value
         )
-        self.__grid_position = (
-            self.get_parameter('grid_position').get_parameter_value().double_array_value
+        self.__grid_center_m = (
+            self.get_parameter('grid_center_m').get_parameter_value().double_array_value
         )
         self.__max_publish_voxels = (
             self.get_parameter('max_publish_voxels').get_parameter_value().integer_value
         )
-        self.__voxel_dims = (
-            self.get_parameter('voxel_dims').get_parameter_value().double_array_value
+        self.__workspace_file_path = (
+            self.get_parameter('workspace_file_path').get_parameter_value().string_value
+        )
+        self.__grid_size_m = (
+            self.get_parameter('grid_size_m').get_parameter_value().double_array_value
+        )
+        self.__update_esdf_on_request = (
+            self.get_parameter('update_esdf_on_request').get_parameter_value().bool_value
+        )
+        self.__use_aabb_on_request = (
+            self.get_parameter('use_aabb_on_request').get_parameter_value().bool_value
         )
         self.__publish_voxel_size = (
             self.get_parameter('publish_voxel_size').get_parameter_value().double_value
         )
         self.__voxel_size = self.get_parameter('voxel_size').get_parameter_value().double_value
+        self._update_link_sphere_server = (
+            self.get_parameter(
+                'update_link_sphere_server').get_parameter_value().string_value
+        )
         self.__esdf_client = None
         self.__esdf_req = None
+
+        # Setup the grid position and dimension.
+        if path.exists(self.__workspace_file_path):
+            self.get_logger().info(
+                f'Loading grid center and dims from workspace file: {self.__workspace_file_path}.')
+            min_corner, max_corner = load_grid_corners_from_workspace_file(
+                self.__workspace_file_path)
+            self.__grid_size_m = get_grid_size(min_corner, max_corner, self.__voxel_size)
+            self.__grid_center_m = get_grid_center(min_corner, self.__grid_size_m)
+
+            self.get_logger().info(
+                f'Loaded grid dims: {self.__grid_size_m}, ' + f'voxel size: {self.__voxel_size}')
+        else:
+            self.get_logger().info(
+                'Loading grid position and dims from grid_center_m and grid_size_m parameters.')
+
+        if is_grid_valid(self.__grid_size_m, self.__voxel_size):
+            self.get_logger().fatal('Number of voxels should be at least 1 in every dimension.')
+            raise SystemExit
+
         if self.__read_esdf_grid:
             esdf_service_name = (
                 self.get_parameter('esdf_service_name').get_parameter_value().string_value
@@ -156,6 +257,8 @@ class CumotionActionServer(Node):
                     f'Service({esdf_service_name}) not available, waiting again...'
                 )
             self.__esdf_req = EsdfAndGradients.Request()
+
+        self.load_motion_gen()
         self.warmup()
         self.__query_count = 0
         self.__tensor_args = self.motion_gen.tensor_args
@@ -164,6 +267,19 @@ class CumotionActionServer(Node):
         )
         self.__js_buffer = None
 
+        # Call on_timer every 0.01 seconds
+        self.timer = self.create_timer(0.01, self.on_timer)
+
+        self.__update_link_spheres_server = UpdateLinkSpheresServer(
+            server_node=self,
+            action_name=self._update_link_sphere_server,
+            robot_kinematics=self.motion_gen.kinematics,
+            robot_base_frame=self.__robot_base_frame
+        )
+        self._action_server = ActionServer(
+            self, MoveGroup, 'cumotion/move_group', self.execute_callback
+        )
+
     def js_callback(self, msg):
         self.__js_buffer = {
             'joint_names': msg.name,
@@ -171,25 +287,7 @@ class CumotionActionServer(Node):
             'velocity': msg.velocity,
         }
 
-    def warmup(self):
-        robot_file = self.get_parameter('robot').get_parameter_value().string_value
-        if robot_file == '':
-            self.get_logger().fatal('Received empty robot file')
-            raise SystemExit
-
-        collision_cache_cuboid = (
-            self.get_parameter('collision_cache_cuboid').get_parameter_value().integer_value
-        )
-        collision_cache_mesh = (
-            self.get_parameter('collision_cache_mesh').get_parameter_value().integer_value
-        )
-        interpolation_dt = (
-            self.get_parameter('interpolation_dt').get_parameter_value().double_value
-        )
-
-        self.get_logger().info('Loaded robot file name: ' + robot_file)
-        self.get_logger().info('warming up cuMotion, wait until ready')
-
+    def load_motion_gen(self):
         tensor_args = self.tensor_args
         world_file = WorldConfig.from_dict(
             {
@@ -201,7 +299,7 @@ class CumotionActionServer(Node):
                 },
                 'voxel': {
                     'world_voxel': {
-                        'dims': self.__voxel_dims,
+                        'dims': self.__grid_size_m,
                         'pose': [0, 0, 0, 1, 0, 0, 0],  # x, y, z, qw, qx, qy, qz
                         'voxel_size': self.__voxel_size,
                         'feature_dtype': torch.bfloat16,
@@ -210,59 +308,81 @@ class CumotionActionServer(Node):
             }
         )
 
-        if robot_file.lower().endswith('.xrdf'):
-            if self.__urdf_path is None:
-                self.get_logger().fatal('urdf_path is required to load robot from .xrdf')
-                raise SystemExit
-            robot_dict = load_yaml(join_path(self.__xrdf_path, robot_file))
-            robot_dict = convert_xrdf_to_curobo(self.__urdf_path, robot_dict, self.get_logger())
-        else:
-            robot_dict = load_yaml(join_path(get_robot_configs_path(), robot_file))
+        robot_config = get_robot_config(
+            robot_file=self.__robot_file,
+            urdf_file_path=self.__urdf_path,
+            logger=self.get_logger()
+        )
 
-        if self.__urdf_path is not None:
-            robot_dict['robot_cfg']['kinematics']['urdf_path'] = self.__urdf_path
-
-        robot_dict = robot_dict['robot_cfg']
+        robot_dict = robot_config['robot_cfg']
         motion_gen_config = MotionGenConfig.load_from_robot_config(
             robot_dict,
             world_file,
             tensor_args,
-            interpolation_dt=interpolation_dt,
-            collision_cache={
-                'obb': collision_cache_cuboid,
-                'mesh': collision_cache_mesh,
-            },
+            num_graph_seeds=self.__num_graph_seeds,
+            num_trajopt_seeds=self.__num_trajopt_seeds,
+            num_trajopt_noisy_seeds=self.__num_trajopt_noisy_seeds,
+            trajopt_tsteps=self.__num_trajopt_time_steps,
+            trajopt_seed_ratio=self.__trajopt_seed_ratio,
+            interpolation_dt=self.__interpolation_dt,
+            collision_cache=self.__collision_cache,
             collision_checker_type=CollisionCheckerType.VOXEL,
             ee_link_name=self.__tool_frame,
+            finetune_trajopt_iters=self.__trajopt_finetune_iters,
         )
 
         motion_gen = MotionGen(motion_gen_config)
-        self.__robot_base_frame = motion_gen.kinematics.base_link
-
-        motion_gen.warmup(enable_graph=True)
-
-        self.__world_collision = motion_gen.world_coll_checker
-        if not self.__add_ground_plane:
-            motion_gen.clear_world_cache()
         self.motion_gen = motion_gen
+        self.__robot_base_frame = self.motion_gen.kinematics.base_link
+
+        self.__world_collision = self.motion_gen.world_coll_checker
+        if not self.__add_ground_plane:
+            self.motion_gen.clear_world_cache()
+        self.__cumotion_grid_shape = self.__world_collision.get_voxel_grid(
+            'world_voxel').get_grid_shape()[0]
+
+    def warmup(self):
+        self.get_logger().info('warming up cuMotion, wait until ready')
+        self.motion_gen.warmup(enable_graph=True)
         self.get_logger().info('cuMotion is ready for planning queries!')
+
+    def on_timer(self):
+        with self.lock:
+            if self.__js_buffer is None:
+                return
+
+            js = np.copy(self.__js_buffer['position'])
+            j_names = deepcopy(self.__js_buffer['joint_names'])
+
+        self.__update_link_spheres_server.publish_all_active_spheres(
+            robot_joint_states=js,
+            robot_joint_names=j_names,
+            tensor_args=self.__tensor_args,
+            rgb=[0.0, 1.0, 1.0, 1.0]
+        )
 
     def update_voxel_grid(self):
         self.get_logger().info('Calling ESDF service')
-        # This is half of x,y and z dims
+
+        # Get the AABB
+        min_corner = get_grid_min_corner(self.__grid_center_m, self.__grid_size_m)
         aabb_min = Point()
-        aabb_min.x = -1 * self.__voxel_dims[0] / 2
-        aabb_min.y = -1 * self.__voxel_dims[1] / 2
-        aabb_min.z = -1 * self.__voxel_dims[2] / 2
-        # This is a voxel size.
-        voxel_dims = Vector3()
-        voxel_dims.x = self.__voxel_dims[0]
-        voxel_dims.y = self.__voxel_dims[1]
-        voxel_dims.z = self.__voxel_dims[2]
-        esdf_future = self.send_request(aabb_min, voxel_dims)
+        aabb_min.x = min_corner[0]
+        aabb_min.y = min_corner[1]
+        aabb_min.z = min_corner[2]
+        aabb_size = Vector3()
+        aabb_size.x = self.__grid_size_m[0]
+        aabb_size.y = self.__grid_size_m[1]
+        aabb_size.z = self.__grid_size_m[2]
+
+        # Request the esdf grid
+        esdf_future = self.send_request(aabb_min, aabb_size)
         while not esdf_future.done():
             time.sleep(0.001)
         response = esdf_future.result()
+        if not response.success:
+            self.get_logger().info('ESDF request failed, try again after few seconds.')
+            return False
         esdf_grid = self.get_esdf_voxel_grid(response)
         if torch.max(esdf_grid.feature_tensor) <= (-1000.0 + 0.5 * self.__voxel_size + 1e-5):
             self.get_logger().error('ESDF data is empty, try again after few seconds.')
@@ -272,6 +392,10 @@ class CumotionActionServer(Node):
         return True
 
     def send_request(self, aabb_min_m, aabb_size_m):
+        self.__esdf_req.visualize_esdf = True
+        self.__esdf_req.update_esdf = self.__update_esdf_on_request
+        self.__esdf_req.use_aabb = self.__use_aabb_on_request
+        self.__esdf_req.frame_id = self.__robot_base_frame
         self.__esdf_req.aabb_min_m = aabb_min_m
         self.__esdf_req.aabb_size_m = aabb_size_m
         self.get_logger().info(
@@ -282,15 +406,43 @@ class CumotionActionServer(Node):
         return esdf_future
 
     def get_esdf_voxel_grid(self, esdf_data):
+        esdf_voxel_size = esdf_data.voxel_size_m
+        if abs(esdf_voxel_size - self.__voxel_size) > 1e-4:
+            self.get_logger().fatal(
+                'Voxel size of esdf array is not equal to requested voxel_size, '
+                f'{esdf_voxel_size} vs. {self.__voxel_size}')
+            raise SystemExit
+
+        # Get the esdf and gradient data
         esdf_array = esdf_data.esdf_and_gradients
         array_shape = [
             esdf_array.layout.dim[0].size,
             esdf_array.layout.dim[1].size,
             esdf_array.layout.dim[2].size,
         ]
-        array_data = np.array(esdf_array.data)
+        array_data = np.array(esdf_array.data, dtype=np.float32)
+        if (array_data.shape[0] <= 0):
+            self.get_logger().fatal(
+                'array shape is zero: ' + str(array_data.shape)
+            )
+            raise SystemExit
+        array_data = torch.as_tensor(array_data)
 
-        array_data = self.__tensor_args.to_device(array_data)
+        # Verify the grid shape
+        if array_shape != self.__cumotion_grid_shape:
+            self.get_logger().fatal(
+                'Shape of received esdf voxel grid does not match the cumotion grid shape, '
+                f'{array_shape} vs. {self.__cumotion_grid_shape}')
+            raise SystemExit
+
+        # Get the origin of the grid
+        grid_origin = [
+            esdf_data.origin_m.x,
+            esdf_data.origin_m.y,
+            esdf_data.origin_m.z,
+        ]
+        # The grid position is defined as the center point of the grid.
+        grid_center_m = get_grid_center(grid_origin, self.__grid_size_m)
 
         # Array data is reshaped to x y z channels
         array_data = array_data.view(array_shape[0], array_shape[1], array_shape[2]).contiguous()
@@ -298,27 +450,20 @@ class CumotionActionServer(Node):
         # Array is squeezed to 1 dimension
         array_data = array_data.reshape(-1, 1)
 
+        # nvblox assigns a value of -1000.0 for unobserved voxels, making it positive
+        array_data[array_data < -999.9] = 1000.0
+
         # nvblox uses negative distance inside obstacles, cuRobo needs the opposite:
-        array_data = -1 * array_data
+        array_data = -1.0 * array_data
 
-        # nvblox assigns a value of -1000.0 for unobserved voxels, making
-        array_data[array_data >= 1000.0] = -1000.0
-
-        # nvblox distance are at origin of each voxel, cuRobo's esdf needs it to be at faces
-        array_data = array_data + 0.5 * self.__voxel_size
+        # nvblox treats surface voxels as distance = 0.0, while cuRobo treats
+        # distance = 0.0 as not in collision. Adding an offset.
+        array_data += 0.5 * self.__voxel_size
 
         esdf_grid = CuVoxelGrid(
             name='world_voxel',
-            dims=self.__voxel_dims,
-            pose=[
-                self.__grid_position[0],
-                self.__grid_position[1],
-                self.__grid_position[2],
-                1,
-                0.0,
-                0.0,
-                0,
-            ],  # x, y, z, qw, qx, qy, qz
+            dims=self.__grid_size_m,
+            pose=grid_center_m + [1, 0.0, 0.0, 0.0],  # x, y, z, qw, qx, qy, qz
             voxel_size=self.__voxel_size,
             feature_dtype=torch.float32,
             feature_tensor=array_data,
@@ -475,21 +620,31 @@ class CumotionActionServer(Node):
         if self.__read_esdf_grid:
             world_update_status = self.update_voxel_grid()
         if self.__publish_curobo_world_as_voxels:
-            voxels = self.__world_collision.get_esdf_in_bounding_box(
-                Cuboid(
-                    name='test',
-                    pose=[0.0, 0.0, 0.0, 1, 0, 0, 0],  # x, y, z, qw, qx, qy, qz
-                    dims=self.__voxel_dims,
-                ),
-                voxel_size=self.__publish_voxel_size,
-            )
-            xyzr_tensor = voxels.xyzr_tensor.clone()
-            xyzr_tensor[..., 3] = voxels.feature_tensor
-            self.publish_voxels(xyzr_tensor)
+            if self.__voxel_pub.get_subscription_count() > 0:
+                # Calculate occupancy and publish only when subscribed.
+                voxels = self.__world_collision.get_occupancy_in_bounding_box(
+                    Cuboid(
+                        name='test',
+                        pose=[0.0, 0.0, 0.0, 1, 0, 0, 0],  # x, y, z, qw, qx, qy, qz
+                        dims=self.__grid_size_m,
+                    ),
+                    voxel_size=self.__publish_voxel_size,
+                )
+                xyzr_tensor = voxels.xyzr_tensor.clone()
+                xyzr_tensor[..., 3] = voxels.feature_tensor
+                self.publish_voxels(xyzr_tensor)
         return world_update_status
 
     def execute_callback(self, goal_handle):
+        if self.planner_busy:
+            self.get_logger().error('Planner is busy')
+            goal_handle.abort()
+            result = MoveGroup.Result()
+            result.error_code.val = MoveItErrorCodes.FAILURE
+            return result
+
         self.get_logger().info('Executing goal...')
+
         # check moveit scaling factors:
         min_scaling_factor = min(goal_handle.request.request.max_velocity_scaling_factor,
                                  goal_handle.request.request.max_acceleration_scaling_factor)
@@ -501,6 +656,7 @@ class CumotionActionServer(Node):
         self.get_logger().info('Planning with time_dilation_factor: ' +
                                str(time_dilation_factor))
         plan_req = goal_handle.request.request
+
         goal_handle.succeed()
 
         scene = goal_handle.request.planning_options.planning_scene_diff
@@ -612,15 +768,18 @@ class CumotionActionServer(Node):
                 return result
         else:
             self.get_logger().error('Goal constraints not supported')
+        with self.lock:
+            self.planner_busy = True
 
         self.motion_gen.reset(reset_seed=False)
         motion_gen_result = self.motion_gen.plan_single(
             start_state,
             goal_pose,
-            MotionGenPlanConfig(max_attempts=5, enable_graph_attempt=1,
+            MotionGenPlanConfig(max_attempts=self.__max_attempts, enable_graph_attempt=1,
                                 time_dilation_factor=time_dilation_factor),
         )
-
+        with self.lock:
+            self.planner_busy = False
         result = MoveGroup.Result()
         if motion_gen_result.success.item():
             result.error_code.val = MoveItErrorCodes.SUCCESS
@@ -639,7 +798,7 @@ class CumotionActionServer(Node):
             if motion_gen_result.status in [
                     MotionGenStatus.INVALID_START_STATE_WORLD_COLLISION,
                     MotionGenStatus.INVALID_START_STATE_SELF_COLLISION,
-                    ]:
+            ]:
 
                 result.error_code.val = MoveItErrorCodes.START_STATE_IN_COLLISION
         else:
@@ -671,35 +830,36 @@ class CumotionActionServer(Node):
         marker.ns = 'curobo_world'
         marker.action = 0
         marker.pose.orientation.w = 1.0
-        marker.lifetime = rclpy.duration.Duration(seconds=1000.0).to_msg()
+        marker.lifetime = rclpy.duration.Duration(seconds=0.0).to_msg()
         marker.frame_locked = False
         marker.scale.x = vox_size
         marker.scale.y = vox_size
         marker.scale.z = vox_size
-
-        # get only voxels that are inside surfaces:
-
-        voxels = voxels[voxels[:, 3] >= 0.0]
-        vox = voxels.view(-1, 4).cpu().numpy()
         marker.points = []
 
-        for i in range(min(len(vox), self.__max_publish_voxels)):
-
+        # get only voxels that are inside surfaces:
+        voxels = voxels[voxels[:, 3] > 0.0]
+        vox = voxels.view(-1, 4).cpu().numpy()
+        number_of_voxels_to_publish = len(vox)
+        if len(vox) > self.__max_publish_voxels:
+            self.get_logger().warn(
+                f'Number of voxels to publish bigger than max_publish_voxels, '
+                f'{len(vox)} > {self.__max_publish_voxels}'
+            )
+            number_of_voxels_to_publish = self.__max_publish_voxels
+        marker.color.r = 1.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+        marker.color.a = 1.0
+        vox = vox.astype(np.float64)
+        for i in range(number_of_voxels_to_publish):
+            # Publish the markers at the center of the voxels:
             pt = Point()
-            pt.x = float(vox[i, 0])
-            pt.y = float(vox[i, 1])
-            pt.z = float(vox[i, 2])
-            color = ColorRGBA()
-            d = vox[i, 3]
-
-            rgba = [min(1.0, 1.0 - float(d)), 0.0, 0.0, 1.0]
-
-            color.r = rgba[0]
-            color.g = rgba[1]
-            color.b = rgba[2]
-            color.a = rgba[3]
-            marker.colors.append(color)
+            pt.x = vox[i, 0]
+            pt.y = vox[i, 1]
+            pt.z = vox[i, 2]
             marker.points.append(pt)
+
         # publish voxels:
         marker.header.stamp = self.get_clock().now().to_msg()
 
@@ -716,7 +876,8 @@ def main(args=None):
     except KeyboardInterrupt:
         cumotion_action_server.get_logger().info('KeyboardInterrupt, shutting down.\n')
     cumotion_action_server.destroy_node()
-    rclpy.shutdown()
+    if rclpy.ok():
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':

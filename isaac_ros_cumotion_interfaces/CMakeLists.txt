@@ -16,26 +16,44 @@
 # SPDX-License-Identifier: Apache-2.0
 
 cmake_minimum_required(VERSION 3.22.1)
-project(isaac_ros_moveit_goal_setter)
+project(isaac_ros_cumotion_interfaces LANGUAGES C CXX)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# The FindPythonInterp and FindPythonLibs modules are removed
+if(POLICY CMP0148)
+  cmake_policy(SET CMP0148 OLD)
+endif()
+
 find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 
-ament_auto_add_executable(${PROJECT_NAME}
-  src/goal_setter_node.cpp
+# Prepare custom goal setter interfaces
+find_package(rosidl_default_generators REQUIRED)
+
+set(ACTION_FILES
+"action/AttachObject.action"
+"action/MotionPlan.action"
+"action/UpdateLinkSpheres.action"
 )
 
-install(PROGRAMS scripts/pose_to_pose.py DESTINATION lib/${PROJECT_NAME})
+rosidl_generate_interfaces(${PROJECT_NAME}
+  ${ACTION_FILES}
+  DEPENDENCIES geometry_msgs moveit_msgs sensor_msgs visualization_msgs
+)
+ament_export_dependencies(rosidl_default_runtime)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  set(ament_cmake_copyright_FOUND TRUE)
-  set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-ament_auto_package(INSTALL_TO_SHARE launch)
+
+# Embed versioning information into installed files
+ament_index_get_resource(ISAAC_ROS_COMMON_CMAKE_PATH isaac_ros_common_cmake_path isaac_ros_common)
+include("${ISAAC_ROS_COMMON_CMAKE_PATH}/isaac_ros_common-version-info.cmake")
+generate_version_info(${PROJECT_NAME})
+
+ament_auto_package()

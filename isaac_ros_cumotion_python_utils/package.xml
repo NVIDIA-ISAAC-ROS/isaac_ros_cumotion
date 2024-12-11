@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>isaac_ros_cumotion_python_utils</name>
+  <version>3.2.0</version>
+  <description>Python utilities used across Isaac ROS cuMotion</description>
+  <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
+  <license>NVIDIA Isaac ROS Software License</license>
+  <url type="website">https://developer.nvidia.com/isaac-ros-gems/</url>
+  <author>Remo Steiner</author>
+  <build_depend>isaac_ros_common</build_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

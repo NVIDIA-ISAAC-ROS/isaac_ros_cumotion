@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>isaac_ros_cumotion</name>
-  <version>3.1.0</version>
+  <version>3.2.0</version>
   <description>Package adds a cuMotion planner node</description>
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
   <license>NVIDIA Isaac ROS Software License</license>
@@ -18,7 +18,12 @@
   <depend>trajectory_msgs</depend>
   <depend>visualization_msgs</depend>
 
+  <build_depend>isaac_ros_cumotion_interfaces</build_depend>
+
   <exec_depend>curobo_core</exec_depend>
+  <exec_depend>isaac_ros_common</exec_depend>
+  <exec_depend>isaac_ros_cumotion_interfaces</exec_depend>
+  <exec_depend>isaac_ros_cumotion_python_utils</exec_depend>
   <exec_depend>isaac_ros_cumotion_robot_description</exec_depend>
   <exec_depend>ros2launch</exec_depend>
 

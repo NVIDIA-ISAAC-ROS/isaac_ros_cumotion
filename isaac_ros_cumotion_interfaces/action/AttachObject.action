@@ -1,0 +1,17 @@
+# Use this action to trigger the attachment or detachment of an object in the robot's kinematic model.
+
+# Goal:
+# Set to true to attach the object, false to detach it.
+bool attach_object
+# Configuration of object to be attached, including its shape (sphere, cuboid, mesh), pose and scale. 
+visualization_msgs/Marker object_config
+# Fallback sphere radius for approximating the collision geometry if automatic generation fails.
+float64 fallback_radius
+---
+# Result:
+# Description of the final result (e.g., success or failure).
+string outcome
+---
+# Feedback:
+# Real-time status update during the action's execution.
+string status

@@ -17,10 +17,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import time
-
 from geometry_msgs.msg import Pose, PoseStamped
-from isaac_ros_goal_setter_interfaces.srv import SetTargetPose
+from isaac_ros_moveit_goal_setter.move_group_client import MoveGroupClient
+from moveit_msgs.msg import MoveItErrorCodes
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -46,17 +45,24 @@ class PoseToPoseNode(Node):
         self._plan_timer_period = self.declare_parameter(
             'plan_timer_period', 0.01).get_parameter_value().double_value
 
+        planner_group_name = self.declare_parameter(
+            'planner_group_name', 'ur_manipulator').get_parameter_value().string_value
+
+        pipeline_id = self.declare_parameter(
+            'pipeline_id', 'isaac_ros_cumotion').get_parameter_value().string_value
+
+        planner_id = self.declare_parameter(
+            'planner_id', 'cuMotion').get_parameter_value().string_value
+
+        ee_link = self.declare_parameter(
+            'end_effector_link', 'wrist_3_link').get_parameter_value().string_value
+
+        self.move_group_client = MoveGroupClient(
+            self, planner_group_name, pipeline_id, planner_id, ee_link)
+
         self._tf_buffer = Buffer(cache_time=rclpy.duration.Duration(seconds=60.0))
         self._tf_listener = TransformListener(self._tf_buffer, self)
 
-        self._goal_service_cb_group = MutuallyExclusiveCallbackGroup()
-
-        self._goal_client = self.create_client(
-            SetTargetPose, 'set_target_pose', callback_group=self._goal_service_cb_group)
-
-        while not self._goal_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('Service set_target_pose not available! Waiting...')
-        self._goal_req = SetTargetPose.Request()
         self.timer = self.create_timer(self._plan_timer_period, self.on_timer)
 
     def _transform_msg_to_pose_msg(self, tf_msg):
@@ -70,14 +76,6 @@ class PoseToPoseNode(Node):
         pose.orientation.z = tf_msg.rotation.z
         pose.orientation.w = tf_msg.rotation.w
         return pose
-
-    def send_goal(self, pose):
-        self.get_logger().debug('Sending pose target to planner.')
-        self._goal_req.pose = pose
-        self.future = self._goal_client.call_async(self._goal_req)
-        while not self.future.done():
-            time.sleep(0.001)
-        return self.future.result()
 
     def on_timer(self):
 
@@ -100,9 +98,8 @@ class PoseToPoseNode(Node):
         output_msg.header.frame_id = self._world_frame
         output_msg.pose = self._transform_msg_to_pose_msg(world_frame_pose_target_frame.transform)
 
-        response = self.send_goal(output_msg)
-        self.get_logger().debug(f'Goal set with response: {response}')
-        if response.success:
+        response = self.move_group_client.send_goal_pose(output_msg)
+        if response.error_code.val == MoveItErrorCodes.SUCCESS:
             self._target_frame_idx = (self._target_frame_idx + 1) % len(self._target_frames)
         else:
             self.get_logger().warning('target pose was not reachable by planner, trying again \

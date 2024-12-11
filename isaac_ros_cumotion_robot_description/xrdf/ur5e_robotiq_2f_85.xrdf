@@ -1,0 +1,246 @@
+format: xrdf
+format_version: 1.0
+
+modifiers:
+  - set_base_frame: "base_link"
+  - add_frame:
+      frame_name: "attached_object"
+      parent_frame_name: "grasp_frame"
+      joint_name: "attach_joint"
+      joint_type: FIXED
+      fixed_transform: 
+        position: [0.0, 0.0, 0.0]
+        orientation: {w: 1.0, xyz: [0.0, 0.0, 0.0]}
+
+default_joint_positions:
+  shoulder_pan_joint: 0.0
+  shoulder_lift_joint: -2.2
+  elbow_joint: 1.0
+  wrist_1_joint: -1.383
+  wrist_2_joint: -1.57
+  wrist_3_joint: 0.00      
+
+cspace:
+  joint_names:
+    - "shoulder_pan_joint"
+    - "shoulder_lift_joint"
+    - "elbow_joint"
+    - "wrist_1_joint"
+    - "wrist_2_joint"
+    - "wrist_3_joint"
+  acceleration_limits: [12.0, 12.0, 12.0, 12.0, 12.0, 12.0]
+  jerk_limits: [500.0, 500.0, 500.0, 500.0, 500.0, 500.0]
+
+tool_frames: ["grasp_frame"]
+
+collision:
+  geometry: "ur5e_robotiq_2f_85_collision_spheres"
+  buffer_distance:
+    shoulder_link: 0.005
+    upper_arm_link: 0.005
+    forearm_link: 0.005
+    wrist_1_link: 0.005
+    wrist_2_link: 0.005
+    wrist_3_link: 0.005
+    tool0: 0.005
+    robotiq_85_base_link: 0.005
+    robotiq_85_left_finger_link: 0.005
+    robotiq_85_left_finger_tip_link: 0.005
+    robotiq_85_left_inner_knuckle_link: 0.005
+    robotiq_85_left_knuckle_link: 0.005
+    robotiq_85_right_finger_link: 0.005
+    robotiq_85_right_finger_tip_link: 0.005 
+    robotiq_85_right_inner_knuckle_link: 0.005
+    robotiq_85_right_knuckle_link: 0.005
+    attached_object: 0.005
+
+self_collision:
+  geometry: "ur5e_robotiq_2f_85_collision_spheres"
+  buffer_distance:
+    shoulder_link: 0.01
+    tool0: 0.02
+  ignore:
+    upper_arm_link: ["forearm_link", "shoulder_link"]
+    forearm_link: ["wrist_1_link", "wrist_2_link", "wrist_3_link"]
+    wrist_1_link: ["wrist_2_link","wrist_3_link","tool0", "robotiq_85_base_link"]
+    wrist_2_link: ["wrist_3_link", "tool0",  "robotiq_85_base_link"]
+    wrist_3_link: ["tool0", "robotiq_85_base_link"]
+    
+    tool0: ['robotiq_85_base_link', 'robotiq_85_left_finger_link', 'robotiq_85_left_finger_tip_link',
+    'robotiq_85_left_inner_knuckle_link', 'robotiq_85_left_knuckle_link',
+    'robotiq_85_right_finger_link', 'robotiq_85_right_finger_tip_link',
+    'robotiq_85_right_inner_knuckle_link', 'robotiq_85_right_knuckle_link']
+
+    robotiq_85_base_link: ['robotiq_85_left_finger_link', 'robotiq_85_left_finger_tip_link',
+    'robotiq_85_left_inner_knuckle_link', 'robotiq_85_left_knuckle_link',
+    'robotiq_85_right_finger_link', 'robotiq_85_right_finger_tip_link',
+    'robotiq_85_right_inner_knuckle_link', 'robotiq_85_right_knuckle_link']
+
+    robotiq_85_left_finger_link: ['robotiq_85_left_finger_tip_link',
+    'robotiq_85_left_inner_knuckle_link', 'robotiq_85_left_knuckle_link',
+    'robotiq_85_right_finger_link', 'robotiq_85_right_finger_tip_link',
+    'robotiq_85_right_inner_knuckle_link', 'robotiq_85_right_knuckle_link']
+
+    robotiq_85_left_finger_tip_link: ['robotiq_85_left_inner_knuckle_link', 'robotiq_85_left_knuckle_link',
+    'robotiq_85_right_finger_link', 'robotiq_85_right_finger_tip_link',
+    'robotiq_85_right_inner_knuckle_link', 'robotiq_85_right_knuckle_link']
+
+    robotiq_85_left_inner_knuckle_link: ['robotiq_85_left_knuckle_link',
+    'robotiq_85_right_finger_link', 'robotiq_85_right_finger_tip_link',
+    'robotiq_85_right_inner_knuckle_link', 'robotiq_85_right_knuckle_link']
+
+    robotiq_85_left_knuckle_link: ['robotiq_85_right_finger_link', 'robotiq_85_right_finger_tip_link',
+    'robotiq_85_right_inner_knuckle_link', 'robotiq_85_right_knuckle_link']
+
+    robotiq_85_right_finger_link: ['robotiq_85_right_finger_tip_link',
+    'robotiq_85_right_inner_knuckle_link', 'robotiq_85_right_knuckle_link']
+
+    robotiq_85_right_finger_tip_link: ['robotiq_85_right_inner_knuckle_link', 
+    'robotiq_85_right_knuckle_link']
+
+    robotiq_85_right_inner_knuckle_link: ['robotiq_85_right_knuckle_link']
+
+    attached_object: [
+    'wrist_2_link', 'wrist_3_link', 'tool0', 'robotiq_85_base_link', 
+    'robotiq_85_left_finger_link', 'robotiq_85_left_finger_tip_link', 'robotiq_85_left_inner_knuckle_link', 
+    'robotiq_85_left_knuckle_link', 'robotiq_85_right_finger_link', 
+    'robotiq_85_right_finger_tip_link', 'robotiq_85_right_inner_knuckle_link', 'robotiq_85_right_knuckle_link']
+    
+geometry:
+  ur5e_robotiq_2f_85_collision_spheres:
+    spheres:
+      shoulder_link:
+        - center: [0.0, 0.0, 0.0]
+          radius: 0.1
+
+      upper_arm_link:
+        - center: [-0.416, -0.0, 0.143]
+          radius: 0.078
+        - center: [-0.015, 0.0, 0.134]
+          radius: 0.077
+        - center: [-0.14, 0.0, 0.138]
+          radius: 0.062
+        - center: [-0.285, -0.001, 0.139]
+          radius: 0.061
+        - center: [-0.376, 0.001, 0.138]
+          radius: 0.077
+        - center: [-0.222, 0.001, 0.139]
+          radius: 0.061
+        - center: [-0.055, 0.008, 0.14]
+          radius: 0.07
+        - center: [-0.001, -0.002, 0.143]
+          radius: 0.08
+
+      forearm_link:
+        - center: [-0.01, 0.002, 0.031]
+          radius: 0.072
+        - center: [-0.387, 0.0, 0.014]
+          radius: 0.057
+        - center: [-0.121, -0.0, 0.006]
+          radius: 0.057
+        - center: [-0.206, 0.001, 0.007]
+          radius: 0.057
+        - center: [-0.312, -0.001, 0.006]
+          radius: 0.056
+        - center: [-0.057, 0.003, 0.008]
+          radius: 0.065
+        - center: [-0.266, 0.0, 0.006]
+          radius: 0.057
+        - center: [-0.397, -0.001, -0.018]
+          radius: 0.052
+        - center: [-0.164, -0.0, 0.007]
+          radius: 0.057
+
+      wrist_1_link:
+        - center: [-0.0, 0.0, -0.009]
+          radius: 0.047
+        - center: [-0.0, 0.0, -0.052]
+          radius: 0.047
+        - center: [-0.002, 0.027, -0.001]
+          radius: 0.045
+        - center: [0.001, -0.01, 0.0]
+          radius: 0.046
+
+      wrist_2_link:
+        - center: [0.0, -0.01, -0.001]
+          radius: 0.047
+        - center: [0.0, 0.008, -0.001]
+          radius: 0.047
+        - center: [0.001, -0.001, -0.036]
+          radius: 0.047
+        - center: [0.001, -0.03, -0.0]
+          radius: 0.047
+
+      wrist_3_link:
+        - center: [0.001, 0.001, -0.029]
+          radius: 0.043
+
+      tool0:
+        - center: [0.001, 0.001, 0.05]
+          radius: -0.01
+
+      robotiq_85_base_link:
+        - center: [0.0, 0.0, 0.04]
+          radius: 0.035
+        - center: [0.0, 0.0, 0.02]
+          radius: 0.035
+
+      robotiq_85_left_finger_link:
+          - center: [0.0, 0.0, 0.01]
+            radius: 0.012
+          - center: [0.0, 0.0, 0.03]
+            radius: 0.012
+          - center: [0.0, 0.0, 0.05]
+            radius: 0.012
+
+      robotiq_85_left_finger_tip_link:
+          - center: [-0.025, 0.0, 0.01]
+            radius: 0.01
+          - center: [-0.025, 0.0, 0.03]
+            radius: 0.01
+          - center: [-0.025, 0.0, 0.05]
+            radius: 0.01
+
+      robotiq_85_left_inner_knuckle_link:
+          - center: [0.0, 0.0, 0.0]
+            radius: 0.012
+          - center: [0.005, 0.0, 0.012]
+            radius: 0.012
+          - center: [0.015, 0.0, 0.025]
+            radius: 0.012
+
+      robotiq_85_left_knuckle_link:
+          - center: [0.0, 0.0, 0.0]
+            radius: 0.01
+
+      robotiq_85_right_finger_link:
+          - center: [0.0, 0.0, 0.01]
+            radius: 0.012
+          - center: [0.0, 0.0, 0.03]
+            radius: 0.012
+          - center: [0.0, 0.0, 0.05]
+            radius: 0.012
+
+      robotiq_85_right_finger_tip_link:
+          - center: [0.025, 0.0, 0.01]
+            radius: 0.01
+          - center: [0.025, 0.0, 0.03]
+            radius: 0.01
+          - center: [0.025, 0.0, 0.05]
+            radius: 0.01
+
+      robotiq_85_right_inner_knuckle_link:
+          - center: [0.0, 0.0, 0.0]
+            radius: 0.012
+          - center: [-0.005, 0.0, 0.012]
+            radius: 0.012
+          - center: [-0.015, 0.0, 0.025]
+            radius: 0.012
+
+      robotiq_85_right_knuckle_link:
+          - center: [0.0, -0.0, -0.0]
+            radius: 0.01
+
+      attached_object:
+          - center: [0.0, 0.08, 0.005]
+            radius: -100.0

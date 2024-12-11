@@ -1,10 +1,18 @@
 /**:
   ros__parameters:
     robot:  ur5e.yml
+    urdf_path: ""
+    yml_file_path: ""
+    depth_qos: 'DEFAULT'
+    depth_info_qos: 'DEFAULT'
+    mask_qos: 'DEFAULT'
+    world_depth_qos: 'DEFAULT'
     depth_image_topics: [/depth_image]
     depth_camera_infos: [/rgb/camera_info]
     robot_mask_publish_topics: [/cumotion/camera_1/robot_mask]
     world_depth_publish_topics: [/cumotion/camera_1/world_depth]
+    filter_speckles_in_mask: False
+    max_filtered_speckles_size: 1250
     joint_states_topic: /joint_states
     debug_robot_topic: /cumotion/robot_segmenter/robot_spheres
     distance_threshold: 0.2
@@ -12,4 +20,4 @@
     tf_lookup_duration: 5.0
     cuda_device: 0
     log_debug: False
-    urdf_path: null
+    update_link_sphere_server: 'segmenter_attach_object'
