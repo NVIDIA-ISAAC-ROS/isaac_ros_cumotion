@@ -6,7 +6,7 @@ NVIDIA accelerated packages for arm motion planning and control
 
 ## Overview
 
-[Isaac ROS cuMotion](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_cumotion) provides CUDA-accelerated manipulation
+Isaac ROS cuMotion provides CUDA-accelerated manipulation
 capabilities for robots in ROS 2.  It provides two main capabilities:
 
 1. Motion generation for robot arms via integration of [cuMotion](https://nvidia-isaac-ros.github.io/concepts/manipulation/index.html#concept-cumotion)

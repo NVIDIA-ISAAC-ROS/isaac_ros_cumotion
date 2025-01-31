@@ -9,6 +9,7 @@
     num_trajopt_seeds: 6
     include_trajopt_retract_seed: True
     num_trajopt_time_steps: 32
+    joint_states_topic: "/joint_states"
     interpolation_dt: 0.025
     collision_cache_cuboid: 20
     collision_cache_mesh: 20

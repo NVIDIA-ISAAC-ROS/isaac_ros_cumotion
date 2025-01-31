@@ -696,6 +696,13 @@ class CumotionActionServer(Node):
                 joint_names=self.__js_buffer['joint_names'],
             )
             state.velocity = self.tensor_args.to_device(self.__js_buffer['velocity']).unsqueeze(0)
+            if state.velocity.shape != state.position.shape:
+                self.get_logger().error(
+                    'start joint position shape is  ' + str(state.position.shape) +
+                    ' start velocity shape is ' + str(state.velocity.shape) +
+                    ', both should match. JointState was read from ' + self.__joint_states_topic
+                )
+                return result
             current_joint_state = self.motion_gen.get_active_js(state)
             if start_state is not None and plan_req.start_state.is_diff:
                 start_state.position += current_joint_state.position
