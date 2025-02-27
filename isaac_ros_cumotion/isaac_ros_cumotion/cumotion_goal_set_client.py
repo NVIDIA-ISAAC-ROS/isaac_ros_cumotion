@@ -51,6 +51,12 @@ class CumotionGoalSetClient:
         self.result = None
 
     def js_callback(self, msg):
+
+        if len(msg.velocity) == 0 or len(msg.position) == 0:
+            self.node.get_logger().error('Velocity or position is empty in joint state message'
+                                         'The joint state topic connected might have an issue.')
+            return
+
         self.__js_buffer = {
             'joint_names': msg.name,
             'position': msg.position,

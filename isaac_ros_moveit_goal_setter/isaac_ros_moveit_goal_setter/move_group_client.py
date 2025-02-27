@@ -69,6 +69,7 @@ class MoveGroupClient:
         self._result = None
         goal_msg = MoveGroup.Goal()
         goal_msg.request.planner_id = self._planner_id
+        goal_msg.request.pipeline_id = self._pipeline_id
         goal_msg.request.group_name = self._planner_group_name
         goal_msg.request.goal_constraints.append(self._get_pose_constraints(pose))
         goal_msg.planning_options.plan_only = False
@@ -88,6 +89,7 @@ class MoveGroupClient:
         self._result = None
         goal_msg = MoveGroup.Goal()
         goal_msg.request.planner_id = self._planner_id
+        goal_msg.request.pipeline_id = self._pipeline_id
         goal_msg.request.group_name = self._planner_group_name
         goal_msg.request.goal_constraints.append(
             self._get_joint_constraints(positions, joint_names))
