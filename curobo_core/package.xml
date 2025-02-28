@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>curobo_core</name>
-  <version>3.2.4</version>
+  <version>3.2.5</version>
   <description>This package wraps the cuRobo library as a ROS 2 package. cuRobo serves as the current backend for cuMotion.</description>
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
   <license>NVIDIA Isaac ROS Software License</license>
