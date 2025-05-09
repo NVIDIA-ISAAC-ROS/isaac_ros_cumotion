@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import copy
+import threading
 import time
 from typing import List, Optional, Union
 
@@ -10,7 +11,7 @@ from curobo.wrap.reacher.motion_gen import MotionGenPlanConfig
 from geometry_msgs.msg import Pose
 from isaac_ros_cumotion_interfaces.action import MotionPlan
 from moveit_msgs.action import ExecuteTrajectory
-from moveit_msgs.msg import DisplayTrajectory
+from moveit_msgs.msg import DisplayTrajectory, PlanningScene
 import numpy as np
 from rclpy.action import ActionClient
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -43,12 +44,26 @@ class CumotionGoalSetClient:
         self.subscription = self.node.create_subscription(
             JointState, self.__joint_states_topic, self.js_callback, 10,
             callback_group=self.cgroup,)
+        self._planning_scene_sub = self.node.create_subscription(
+            PlanningScene, '/planning_scene', self._planning_scene_callback, 10,
+            callback_group=self.cgroup,)
         self.__js_buffer = None
+        self.__latest_planning_scene = None
+        self.__planning_scene_lock = threading.Lock()
         self.__robot_executing = False
         self.execute_plan_client = ActionClient(
             self.node, ExecuteTrajectory, '/execute_trajectory', callback_group=self.cgroup,)
 
         self.result = None
+
+    def _planning_scene_callback(self, msg):
+        with self.__planning_scene_lock:
+            self.__latest_planning_scene = msg
+        if msg.world:
+            self.node.get_logger().info(
+                f'Received new planning scene with '
+                f'{len(msg.world.collision_objects)} objects'
+            )
 
     def js_callback(self, msg):
 
@@ -108,7 +123,6 @@ class CumotionGoalSetClient:
         goal_pose_array=None,
         disable_collision_links: List[str] = [],
         update_planning_scene: bool = False,
-
     ):
         # generate request:
         self.node.get_logger().info('Moving to pose')
@@ -137,7 +151,12 @@ class CumotionGoalSetClient:
             goal_msg.use_current_state = False
             goal_msg.start_state.position = start_state.position.cpu().flatten().to_list()
             goal_msg.start_state.name = start_state.joint_names
+
         goal_msg.use_planning_scene = update_planning_scene
+        with self.__planning_scene_lock:
+            if update_planning_scene and self.__latest_planning_scene is not None:
+                goal_msg.world = self.__latest_planning_scene.world
+
         goal_msg.hold_partial_pose = False
         if plan_config is not None:
             if plan_config.time_dilation_factor is not None:
@@ -207,7 +226,12 @@ class CumotionGoalSetClient:
             goal_msg.use_current_state = False
             goal_msg.start_state.position = start_state.position.cpu().flatten().to_list()
             goal_msg.start_state.name = start_state.joint_names
+
         goal_msg.use_planning_scene = update_planning_scene
+        with self.__planning_scene_lock:
+            if update_planning_scene and self.__latest_planning_scene is not None:
+                goal_msg.world = self.__latest_planning_scene.world
+
         goal_msg.hold_partial_pose = False
         goal_msg.time_dilation_factor = time_dilation_factor
         # Fill the six new parameters in here
@@ -255,6 +279,7 @@ class CumotionGoalSetClient:
         if self.__robot_executing:
             self.node.get_logger().error('Robot is still executing previous command')
             return False, None
+
         self.node.get_logger().info('waiting for js')
         self.__js_buffer = None
         while self.__js_buffer is None:
