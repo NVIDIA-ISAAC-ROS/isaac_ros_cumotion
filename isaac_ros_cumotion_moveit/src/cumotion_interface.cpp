@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -64,6 +64,7 @@ bool CumotionInterface::solve(
 
   if (!action_client_->result_ready) {
     RCLCPP_ERROR(node_->get_logger(), "Timed out!");
+    response.error_code_.val = moveit_msgs::msg::MoveItErrorCodes::TIMED_OUT;
     planner_busy = false;
     return false;
   }
