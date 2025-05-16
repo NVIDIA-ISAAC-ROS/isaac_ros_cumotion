@@ -90,7 +90,7 @@ class CumotionActionServer(Node):
         self.declare_parameter('use_aabb_on_request', True)
 
         self.declare_parameter('esdf_service_name', '/nvblox_node/get_esdf_and_gradient')
-        self.declare_parameter('enable_curobo_debug_mode', True)
+        self.declare_parameter('enable_curobo_debug_mode', False)
         self.declare_parameter('override_moveit_scaling_factors', False)
         self.declare_parameter('update_link_sphere_server',
                                'planner_attach_object')
@@ -107,12 +107,10 @@ class CumotionActionServer(Node):
         self.lock = threading.Lock()
 
         self.__robot_file = self.get_parameter('robot').get_parameter_value().string_value
-        # self.get_logger().info(f"ROBOT file: {self.__robot_file}")
 
         try:
             self.__urdf_path = self.get_parameter('urdf_path')
             self.__urdf_path = self.__urdf_path.get_parameter_value().string_value
-            # self.get_logger().info(f"ROBOT urdf: {self.__urdf_path}")
             if self.__urdf_path == '':
                 self.__urdf_path = None
         except rclpy.exceptions.ParameterUninitializedException:
@@ -705,7 +703,6 @@ class CumotionActionServer(Node):
                 state.velocity = self.tensor_args.to_device(velocity_array).unsqueeze(0)
             self.get_logger().info(f"JointState: position={self.__js_buffer['position']}, velocity={velocity_array}")
 
-            # Now the shape check is valid
             if state.velocity.shape != state.position.shape:
                 self.get_logger().error(
                     'start joint position shape is  ' + str(state.position.shape) +
@@ -737,13 +734,7 @@ class CumotionActionServer(Node):
                     joint_names=goal_jnames,
                 )
             )
-
             goal_pose = self.motion_gen.compute_kinematics(goal_state).ee_pose.clone()
-
-            self.get_logger().info("\n")
-            self.get_logger().info(f"->goal_state:' {goal_state}, {type(goal_state)}")
-            self.get_logger().info(f"goal_pose:' {goal_pose.tolist()}, {type(goal_pose)}")
-            self.get_logger().info("\n")
 
         elif (
             len(plan_req.goal_constraints[0].position_constraints) > 0
@@ -795,24 +786,6 @@ class CumotionActionServer(Node):
         with self.lock:
             self.planner_busy = True
 
-        self.motion_gen.reset(reset_seed=False)
-        self.get_logger().info("\n")
-        self.get_logger().info(f"start_state: {start_state}")
-        self.get_logger().info(f"goal_state: {goal_state}")
-        self.get_logger().info("\n")
-
-        # self.get_logger().info('Planning in Cartesian Space')
-        # motion_gen_result = self.motion_gen.plan_single(
-        #     start_state,
-        #     goal_pose,
-        #     MotionGenPlanConfig(
-        #         max_attempts=self.__max_attempts,
-        #         enable_graph_attempt=1,
-        #         time_dilation_factor=time_dilation_factor
-        #     )
-        # )
-
-
         # Joint-to-Joint Planning (for Joint goals)
         if len(plan_req.goal_constraints[0].joint_constraints) > 0:
             self.get_logger().info('Planning in Joint Space')
@@ -851,8 +824,6 @@ class CumotionActionServer(Node):
             )
             result.planning_time = motion_gen_result.total_time
             result.planned_trajectory = traj
-
-            # self.get_logger().info('planned trajectory: ' + str(traj))
         elif not motion_gen_result.valid_query:
             self.get_logger().error(
                 f'Invalid planning query: {motion_gen_result.status}'
@@ -865,7 +836,6 @@ class CumotionActionServer(Node):
             ]:
 
                 result.error_code.val = MoveItErrorCodes.START_STATE_IN_COLLISION
-                self.get_logger('error_code:', motion_gen_result.status)
         else:
             self.get_logger().error(
                 f'Motion planning failed wih status: {motion_gen_result.status}'
