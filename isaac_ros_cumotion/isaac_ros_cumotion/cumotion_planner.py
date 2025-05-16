@@ -701,8 +701,6 @@ class CumotionActionServer(Node):
                 state.velocity = torch.zeros_like(position_tensor, device=position_tensor.device)
             else:
                 state.velocity = self.tensor_args.to_device(velocity_array).unsqueeze(0)
-            self.get_logger().info(f"JointState: position={self.__js_buffer['position']}, velocity={velocity_array}")
-
             if state.velocity.shape != state.position.shape:
                 self.get_logger().error(
                     'start joint position shape is  ' + str(state.position.shape) +
@@ -735,7 +733,6 @@ class CumotionActionServer(Node):
                 )
             )
             goal_pose = self.motion_gen.compute_kinematics(goal_state).ee_pose.clone()
-
         elif (
             len(plan_req.goal_constraints[0].position_constraints) > 0
             and len(plan_req.goal_constraints[0].orientation_constraints) > 0
