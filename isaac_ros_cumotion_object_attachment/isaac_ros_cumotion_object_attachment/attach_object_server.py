@@ -206,26 +206,36 @@ class AttachObjectServer(Node):
         self._object_esdf_clearing_padding = np.asarray(self.get_parameter(
             'object_esdf_clearing_padding').get_parameter_value().double_array_value)
 
-        # Validate topic lengths
-        self.__num_cameras = len(self.__depth_image_topics)
-        if len(self.__depth_camera_infos) != self.__num_cameras:
-            self.get_logger().error(
-                'Number of topics in depth_camera_infos does not match depth_image_topics')
-
         self.__tensor_args = TensorDeviceType(
             device=torch.device('cuda', self.__cuda_device_id))
 
-        # Create subscribers for depth image and robot joint state:
-        subscribers = [Subscriber(self, Image, topic, qos_profile=depth_qos)
-                       for topic in self.__depth_image_topics]
-        subscribers.append(Subscriber(
-            self, JointState, self.__joint_states_topic))
+        self.__num_cameras = len(self.__depth_image_topics)
 
-        # Subscribe to topics with sync:
-        self.__approx_time_sync = ApproximateTimeSynchronizer(
-            tuple(subscribers), queue_size=100, slop=self.__time_sync_slop)
-        self.__approx_time_sync.registerCallback(
-            self.process_depth_and_joint_state)
+        if len(self.__depth_image_topics) > 0 and self.__depth_image_topics[0]:
+            # Validate topic lengths when nvblox and robot segmentor are enabled
+            if len(self.__depth_camera_infos) != self.__num_cameras:
+                self.get_logger().error(
+                    'Number of topics in depth_camera_infos does not match depth_image_topics')
+
+            # Create subscribers for depth image and robot joint state:
+            subscribers = [
+                Subscriber(self, Image, topic, qos_profile=depth_qos)
+                for topic in self.__depth_image_topics
+            ]
+            subscribers.append(Subscriber(
+                self, JointState, self.__joint_states_topic))
+
+            # Subscribe to topics with sync:
+            self.__approx_time_sync = ApproximateTimeSynchronizer(
+                tuple(subscribers), queue_size=100, slop=self.__time_sync_slop)
+            self.__approx_time_sync.registerCallback(
+                self.process_depth_and_joint_state)
+        else:
+            # Create subscriber for joint state when nvblox is disabled
+            js_cb_group = MutuallyExclusiveCallbackGroup()
+            self.__joint_state_subscriber = self.create_subscription(
+                JointState, self.__joint_states_topic,
+                self.js_callback, 10, callback_group=js_cb_group)
 
         # Create subscriber for camera info
         self.__info_subscribers = []
@@ -375,60 +385,38 @@ class AttachObjectServer(Node):
             )
             return False
 
-        # Validate the 'fallback_radius' field
-        if not isinstance(attachment_goal.fallback_radius, float):
-            self.get_logger().error(
-                'Value of fallback_radius sent over action call is invalid. Expecting float value.'
-            )
-            return False
-
-        # Validate the 'object_config' field
-        if not isinstance(attachment_goal.object_config, Marker):
-            self.get_logger().error(
-                'Object configuration is invalid. Expecting Marker type.'
-            )
-            return False
-
-        # Validate the shape of the object (SPHERE, CUBE, MESH_RESOURCE)
-        if attachment_goal.object_config.type not in [
-                Marker.SPHERE, Marker.CUBE, Marker.MESH_RESOURCE]:
-            self.get_logger().error(
-                'Object type is invalid. Expected one of SPHERE, CUBE, or MESH_RESOURCE.'
-            )
-            return False
-
-        # For CUBE and MESH_RESOURCE types, validate pose and scale
-        if attachment_goal.object_config.type in [Marker.CUBE, Marker.MESH_RESOURCE]:
-            # Validate the object pose (Pose type)
-            if not isinstance(attachment_goal.object_config.pose, Pose):
+        # Only validate fallback_radius and object_config when attaching
+        if attachment_goal.attach_object:
+            if not isinstance(attachment_goal.fallback_radius, float):
                 self.get_logger().error(
-                    'Object pose is invalid. Expecting Pose type for CUBE or MESH_RESOURCE.'
+                    'Value of fallback_radius sent over action call is invalid. '
+                    'Expecting float value.'
                 )
                 return False
 
-            # Validate the object scale (Vector3 type)
-            if not isinstance(attachment_goal.object_config.scale, Vector3):
+            if not isinstance(attachment_goal.object_config, Marker):
                 self.get_logger().error(
-                    'Object scale is invalid. Expecting Vector3 type for CUBE or MESH_RESOURCE.'
+                    'Object configuration is invalid. Expecting Marker type.'
                 )
                 return False
 
-        # Additional validation for custom meshes: check if mesh_resource is set and is a string
-        if attachment_goal.object_config.type == Marker.MESH_RESOURCE:
-            if not isinstance(attachment_goal.object_config.mesh_resource, str):
+            if attachment_goal.object_config.type not in [
+                    Marker.SPHERE, Marker.CUBE, Marker.MESH_RESOURCE]:
                 self.get_logger().error(
-                    'Mesh resource is invalid. Expecting a string value for MESH_RESOURCE.'
+                    'Object type is invalid. Expected one of SPHERE, CUBE, or MESH_RESOURCE.'
                 )
                 return False
-            if not attachment_goal.object_config.mesh_resource:
-                self.get_logger().error(
-                    'Mesh resource is missing for custom mesh object.'
-                )
-                return False
-            if not os.path.isfile(attachment_goal.object_config.mesh_resource):
-                self.get_logger().error(f'Mesh resource file does not exist: '
-                                        f'{attachment_goal.object_config.mesh_resource}')
-                return False
+
+            if attachment_goal.object_config.type == Marker.MESH_RESOURCE:
+                if not attachment_goal.object_config.mesh_resource:
+                    self.get_logger().error(
+                        'Mesh resource is missing for custom mesh object.'
+                    )
+                    return False
+                if not os.path.isfile(attachment_goal.object_config.mesh_resource):
+                    self.get_logger().error(f'Mesh resource file does not exist: '
+                                            f'{attachment_goal.object_config.mesh_resource}')
+                    return False
 
         # All validations passed
         return True
@@ -1093,8 +1081,10 @@ class AttachObjectServer(Node):
                 self.__depth_encoding.append(msg.encoding)
                 self.__depth_timestamps.append(msg.header.stamp)  # Store timestamp
             if (isinstance(msg, JointState)):
-                self.__js_buffer = {'joint_names': msg.name,
-                                    'position': msg.position}
+                self.__js_buffer = {
+                    'joint_names': msg.name,
+                    'position': msg.position
+                }
                 self.__timestamp = msg.header.stamp
 
     def camera_info_cb(
@@ -1157,21 +1147,27 @@ class AttachObjectServer(Node):
             attached_object_shape = self.__attached_object_config.type
             # Lock to prevent concurrent data modification during read and copy.
             with self.__lock:
-                error_msg = 'No depth images in the buffer, please check the time sync slop ' \
-                            'parameter. It could be that joint states and images could not ' \
-                            'be synced together.'
+                error_msg = ('No depth images in the buffer, please check the time sync slop '
+                             'parameter. It could be that joint states and images could not '
+                             'be synced together.')
                 if attached_object_shape == Marker.SPHERE:
                     self.filter_depth_buffers()
-                    error_msg += f' We filter the depth to only get depth images from the past ' \
-                                 f'{self.__filter_depth_buffer_time} seconds'
+                    error_msg += (f' We filter the depth to only get depth images from the past '
+                                  f'{self.__filter_depth_buffer_time} seconds')
 
-                if len(self.__depth_buffers) == 0:
-                    self.__att_obj_srv_fb_msg.status = error_msg
+                    if len(self.__depth_buffers) == 0:
+                        self.__att_obj_srv_fb_msg.status = error_msg
+                        self.get_logger().error(self.__att_obj_srv_fb_msg.status)
+                        return False, None
+
+                    depth_image = np.copy(np.stack((self.__depth_buffers)))
+                    intrinsics = np.copy(np.stack(self.__depth_intrinsics))
+
+                if self.__js_buffer is None:
+                    self.__att_obj_srv_fb_msg.status = 'No joint states buffer found'
                     self.get_logger().error(self.__att_obj_srv_fb_msg.status)
                     return False, None
 
-                depth_image = np.copy(np.stack((self.__depth_buffers)))
-                intrinsics = np.copy(np.stack(self.__depth_intrinsics))
                 js = np.copy(self.__js_buffer['position'])
                 j_names = deepcopy(self.__js_buffer['joint_names'])
 
@@ -2386,6 +2382,25 @@ class AttachObjectServer(Node):
 
         self.__att_obj_srv_fb_msg.status = f'Published object spheres in {time.time()-start_time}s'
         att_obj_srv_goal_handle.publish_feedback(self.__att_obj_srv_fb_msg)
+
+    def js_callback(self, msg: JointState) -> None:
+        """
+        Process joint state messages.
+
+        Args
+        ----
+            msg (JointState): Joint state message to process.
+
+        Returns
+        -------
+            None
+
+        """
+        self.__js_buffer = {
+            'joint_names': msg.name,
+            'position': msg.position
+        }
+        self.__timestamp = msg.header.stamp
 
 
 def main(args=None):

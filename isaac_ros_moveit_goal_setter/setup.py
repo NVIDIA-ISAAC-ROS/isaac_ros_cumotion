@@ -15,16 +15,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from glob import glob
-import os
-
 from setuptools import find_packages, setup
 
 package_name = 'isaac_ros_moveit_goal_setter'
 
 setup(
     name=package_name,
-    version='3.2.0',
+    version='4.0.0',
     packages=find_packages(exclude=['test']),
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
@@ -37,7 +34,11 @@ setup(
     author='Kajanan Chinniah',
     description='This package sets the goal for MoveIt',
     license='NVIDIA Isaac ROS Software License',
-    tests_require=['pytest'],
+    extras_require={
+        'test': [
+            'pytest'
+        ]
+    },
     entry_points={
         'console_scripts': [
             'pose_to_pose_node = isaac_ros_moveit_goal_setter.pose_to_pose:main',

@@ -384,7 +384,7 @@
       </geometry>
     </collision>
   </link>
-  
+
   <link name="left_outer_knuckle">
     <inertial>
       <origin rpy="0 0 0" xyz="-0.000200000000003065 0.0199435877845359 0.0292245259211331"/>
@@ -701,5 +701,19 @@
     <origin rpy="0 0 0" xyz="0 0 0.20"/>
     <parent link="gripper_frame"/>
     <child link="grasp_frame"/>
+  </joint>
+
+  <link name="insertion_frame">
+    <inertial>
+        <!-- Dummy inertial parameters to avoid link lumping-->
+        <mass value="0.01"/>
+        <inertia ixx="0.0001" ixy="0.0" ixz="0.0" iyy="0.0001" iyz="0.0" izz="0.0001"/>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+    </inertial>
+  </link>
+  <joint name="insertion_joint" type="fixed">
+    <origin rpy="0 3.14 0" xyz="0 0 0.22"/>
+    <parent link="gripper_frame"/>
+    <child link="insertion_frame"/>
   </joint>
 </robot>

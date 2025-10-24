@@ -24,6 +24,13 @@ bool plan_approach_to_grasp
 bool plan_grasp_to_retract
 bool grasp_approach_constraint_in_goal_frame
 bool retract_constraint_in_goal_frame
+string object_frame
+string world_frame
+string mesh_resource
+string object_shape
+geometry_msgs/Vector3 object_scale
+bool enable_aabb_clearing
+float32[] object_esdf_clearing_padding
 ---
 bool success
 string message

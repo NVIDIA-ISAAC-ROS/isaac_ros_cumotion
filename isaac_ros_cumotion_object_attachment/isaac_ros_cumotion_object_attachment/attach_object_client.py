@@ -11,7 +11,7 @@ from isaac_manipulator_ros_python_utils.launch_utils import (
     extract_pose_from_parameter,
     extract_vector3_from_parameter,
 )
-from isaac_manipulator_ros_python_utils.types import (
+from isaac_manipulator_ros_python_utils.manipulator_types import (
     AttachState, Mode, ObjectAttachmentShape
 )
 from isaac_ros_cumotion_interfaces.action import AttachObject

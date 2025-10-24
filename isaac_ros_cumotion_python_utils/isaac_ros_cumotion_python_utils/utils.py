@@ -16,15 +16,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import math
+from typing import List, Tuple
+
 import numpy as np
 import numpy.typing as npt
-from typing import List, Tuple
 import yaml
 
 
 def load_grid_corners_from_workspace_file(
         workspace_file_path: str) -> Tuple[npt.NDArray, npt.NDArray]:
-    """Load a workspace file and return the min / max corners specified.
+    """
+    Load a workspace file and return the min / max corners specified.
 
     All voxels that are fully or partially contained in the bounding box
     defined by the min / max corners are part of the workspace.
@@ -35,9 +37,11 @@ def load_grid_corners_from_workspace_file(
     Args:
         workspace_file_path (str): The absolute path to the workspace file.
 
-    Returns:
+    Returns
+    -------
         Tuple[npt.NDArray, npt.NDArray]: A tuple of two 3d vectors specifying the
                                          min and max corners of the workspace.
+
     """
     with open(workspace_file_path) as config_file:
         config_dict = yaml.safe_load(config_file)['/**']['ros__parameters']['static_mapper']
@@ -69,7 +73,7 @@ def get_grid_size(
         max_corner: List[float],
         voxel_size: float,
         ) -> List[float]:
-    """Get the grid size from corners and voxel size"""
+    """Get the grid size from corners and voxel size."""
     inv_voxel_size = 1.0 / voxel_size
     min_in_vox = [robust_floor(x * inv_voxel_size) for x in min_corner]
     max_in_vox = [robust_floor(x * inv_voxel_size) for x in max_corner]
@@ -81,12 +85,15 @@ def get_grid_size(
 
 
 def is_grid_valid(grid_size: List[float], voxel_size: float) -> bool:
-    """Check if the grid is valid.
+    """
+    Check if the grid is valid.
 
     Currently the only restriction is that there should be at least 1 voxel per dimension.
 
-    Returns:
+    Returns
+    -------
         bool: Whether the grid is valid.
+
     """
     num_voxels_per_dimension = np.array(grid_size) / voxel_size
     num_voxels_per_dim_is_zero = (num_voxels_per_dimension <= 0).any()

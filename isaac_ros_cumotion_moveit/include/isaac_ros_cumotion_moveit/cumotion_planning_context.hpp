@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@
 #include <memory>
 #include <string>
 
-#include "moveit/planning_interface/planning_interface.h"
+#include "moveit/planning_interface/planning_interface.hpp"
 
 #include "isaac_ros_cumotion_moveit/cumotion_interface.hpp"
 
@@ -48,9 +48,9 @@ public:
   {
   }
 
-  bool solve(planning_interface::MotionPlanResponse & res) override;
+  void solve(planning_interface::MotionPlanResponse & res) override;
 
-  bool solve(planning_interface::MotionPlanDetailedResponse & res) override;
+  void solve(planning_interface::MotionPlanDetailedResponse & res) override;
 
   bool terminate() override
   {

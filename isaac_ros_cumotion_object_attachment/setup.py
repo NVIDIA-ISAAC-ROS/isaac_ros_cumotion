@@ -24,7 +24,7 @@ package_name = 'isaac_ros_cumotion_object_attachment'
 
 setup(
     name=package_name,
-    version='3.2.0',
+    version='4.0.0',
     packages=find_packages(),
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
@@ -45,7 +45,11 @@ setup(
     author='Animesh Singhal',
     description='Package attaches/detaches a grasped object to robot collision geometry',
     license='Apache-2.0',
-    tests_require=['pytest'],
+    extras_require={
+        'test': [
+            'pytest'
+        ]
+    },
     entry_points={
         'console_scripts': [
             'attach_object_server_node = '

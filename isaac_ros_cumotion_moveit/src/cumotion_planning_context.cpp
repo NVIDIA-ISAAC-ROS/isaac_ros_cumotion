@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,24 +24,22 @@ namespace isaac
 namespace manipulation
 {
 
-bool CumotionPlanningContext::solve(planning_interface::MotionPlanDetailedResponse & res)
+void CumotionPlanningContext::solve(planning_interface::MotionPlanDetailedResponse & res)
 {
-  return cumotion_interface_->solve(planning_scene_, request_, res);
+  cumotion_interface_->solve(planning_scene_, request_, res);
 }
 
-bool CumotionPlanningContext::solve(planning_interface::MotionPlanResponse & res)
+void CumotionPlanningContext::solve(planning_interface::MotionPlanResponse & res)
 {
   planning_interface::MotionPlanDetailedResponse res_detailed;
-  bool planning_success = solve(res_detailed);
+  solve(res_detailed);
 
-  res.error_code_ = res_detailed.error_code_;
+  res.error_code = res_detailed.error_code;
 
-  if (planning_success) {
-    res.trajectory_ = res_detailed.trajectory_[0];
-    res.planning_time_ = res_detailed.processing_time_[0];
+  if (res) {
+    res.trajectory = res_detailed.trajectory[0];
+    res.planning_time = res_detailed.processing_time[0];
   }
-
-  return planning_success;
 }
 
 }  // namespace manipulation

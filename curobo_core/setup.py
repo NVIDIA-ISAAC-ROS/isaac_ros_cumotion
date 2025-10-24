@@ -117,7 +117,11 @@ setup(
     description='This package wraps the cuRobo library as a ROS 2 package. '
                 'cuRobo serves as the current backend for cuMotion.',
     license='NVIDIA Isaac ROS Software License',
-    tests_require=['pytest'],
+    extras_require={
+        'test': [
+            'pytest',
+        ],
+    },
     entry_points={
         'console_scripts': [
         ],

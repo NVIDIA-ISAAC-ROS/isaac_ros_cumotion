@@ -8,7 +8,7 @@
 # its affiliates is strictly prohibited.
 
 from copy import deepcopy
-import threading
+import os
 import time
 
 from curobo.types.base import TensorDeviceType
@@ -16,26 +16,34 @@ from curobo.types.camera import CameraObservation
 from curobo.types.math import Pose as CuPose
 from curobo.types.state import JointState as CuJointState
 from curobo.wrap.model.robot_segmenter import RobotSegmenter
+
 import cv2
 from cv_bridge import CvBridge
 from isaac_ros_common.qos import add_qos_parameter
 from isaac_ros_cumotion.update_kinematics import get_robot_config
 from isaac_ros_cumotion.update_kinematics import UpdateLinkSpheresServer
 from isaac_ros_cumotion.util import get_spheres_marker
+
+from isaac_ros_nitros_bridge_interfaces.msg import NitrosBridgeImage
+from isaac_ros_pynitros.isaac_ros_pynitros_message_filter import PyNitrosMessageFilter
+from isaac_ros_pynitros.isaac_ros_pynitros_publisher import PyNitrosPublisher
+from isaac_ros_pynitros.isaac_ros_pynitros_subscriber import PyNitrosSubscriber
+from isaac_ros_pynitros.pynitros_type_builders.pynitros_image_builder import PyNitrosImageBuilder
+from isaac_ros_pynitros.pynitros_type_views.pynitros_image_view import PyNitrosImageView
+
 from message_filters import ApproximateTimeSynchronizer
 from message_filters import Subscriber
 import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo
-from sensor_msgs.msg import Image
 from sensor_msgs.msg import JointState
+from std_msgs.msg import Header
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 import torch
 from visualization_msgs.msg import MarkerArray
-
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -142,14 +150,38 @@ class CumotionRobotSegmenter(Node):
 
         self._tensor_args = TensorDeviceType(device=torch.device('cuda', cuda_device_id))
 
-        # Create subscribers:
-        subscribers = [Subscriber(self, Image, topic, qos_profile=depth_qos)
+        # Enable ptrace for PyNITROS
+        ret = os.system('echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope')
+        if ret != 0:
+            self.get_logger().error('Failed to set ptrace_scope, \
+             Please run the following command with privileges to enable ptrace: \
+             echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope')
+        else:
+            self.get_logger().info('Set ptrace_scope to 0 for PyNITROS')
+        bridge_topic_suffix = '_bridge'
+        ros_topic_suffix = '_ros'
+
+        subscribers = [PyNitrosSubscriber(self,
+                                          message_type=NitrosBridgeImage,
+                                          sub_topic_name=topic,
+                                          enable_ros_subscribe=True,
+                                          qos_profile=depth_qos)
                        for topic in depth_image_topics]
         subscribers.append(Subscriber(self, JointState, joint_states_topic))
-        # Subscribe to topics with sync:
-        self.approx_time_sync = ApproximateTimeSynchronizer(
-            tuple(subscribers), queue_size=100, slop=time_sync_slop)
-        self.approx_time_sync.registerCallback(self.process_depth_and_joint_state)
+
+        # A queue size of 10 means that only joint states of the past 0.02 seconds will be stored
+        # since joint states come at 500 hz, hence each joint state is 2 ms apart.
+        # Hence 10 * 2 means 20 ms of joint states will be stored.
+        # And for images which come at roughly 10 hz, that means the oldest image will be 1000 ms
+        # old since image comes every 100 ms, hence 10 of those meaning oldest image is 1000 ms
+        # Time sync slop is 0.1 meaning 100 ms threshold, that means oldest image will be the
+        # latest image that comes in, if not then the buffer in python is cleared quite often.
+        self.approx_time_sync = PyNitrosMessageFilter(self,
+                                                      subscribers,
+                                                      ApproximateTimeSynchronizer,
+                                                      self.process_depth_and_joint_state,
+                                                      queue_size=10,
+                                                      slop=time_sync_slop)
 
         self.info_subscribers = []
 
@@ -161,9 +193,22 @@ class CumotionRobotSegmenter(Node):
             )
 
         self.mask_publishers = [
-            self.create_publisher(Image, topic, mask_qos) for topic in publish_mask_topics]
-        self.segmented_publishers = [
-            self.create_publisher(Image, topic, world_depth_qos) for topic in world_depth_topics]
+            PyNitrosPublisher(self, NitrosBridgeImage,
+                              pub_topic=topic+bridge_topic_suffix,
+                              pub_topic_raw=topic+ros_topic_suffix,
+                              qos_profile=mask_qos)
+            for topic in publish_mask_topics]
+        self.world_depth_publishers = [
+            PyNitrosPublisher(self, NitrosBridgeImage,
+                              pub_topic=topic+bridge_topic_suffix,
+                              pub_topic_raw=topic+ros_topic_suffix,
+                              qos_profile=world_depth_qos)
+            for topic in world_depth_topics]
+
+        self.mask_builder = PyNitrosImageBuilder(
+            num_buffer=40, timeout=5)
+        self.world_depth_builder = PyNitrosImageBuilder(
+            num_buffer=40, timeout=5)
 
         self.debug_robot_publisher = self.create_publisher(MarkerArray, debug_robot_topic, 10)
 
@@ -173,16 +218,11 @@ class CumotionRobotSegmenter(Node):
         self.br = CvBridge()
 
         # Create buffers to store data:
-        self._depth_buffers = None
         self._depth_intrinsics = [None for x in range(num_cameras)]
         self._robot_pose_camera = [None for x in range(num_cameras)]
-        self._depth_encoding = None
 
         self._js_buffer = None
         self._timestamp = None
-        self._camera_headers = []
-        self.lock = threading.Lock()
-        self.timer = self.create_timer(0.01, self.on_timer)
 
         robot_config = get_robot_config(
             robot_file=self.__robot_file,
@@ -206,101 +246,49 @@ class CumotionRobotSegmenter(Node):
         self.get_logger().info(f'Node initialized with {self._num_cameras} cameras')
 
     def process_depth_and_joint_state(self, *msgs):
-        self._depth_buffers = []
-        self._depth_encoding = []
-        self._camera_headers = []
+        if not all(isinstance(intrinsic, np.ndarray) for intrinsic in self._depth_intrinsics):
+            return
+
+        depth_buffers = []
+        depth_encoding = []
+        camera_headers = []
+        js_buffer = None
+        timestamp = None
+
         for msg in msgs:
-            if (isinstance(msg, Image)):
-                img = self.br.imgmsg_to_cv2(msg)
-                if msg.encoding == '32FC1':
+            if (isinstance(msg, PyNitrosImageView)):
+
+                img = torch.as_tensor(msg, device='cuda', dtype=torch.uint8)
+                if msg.get_encoding() == '32FC1':
+                    #  RealSense depth in 32 Float is in millimeters
+                    #  Hawk depth in 16 Float is in meters
+                    img = img.view(torch.float32).view(msg.get_height(), msg.get_width())
                     img = 1000.0 * img
-                self._depth_buffers.append(img)
-                self._camera_headers.append(msg.header)
-                self._depth_encoding.append(msg.encoding)
+                elif msg.get_encoding() == '16UC1':
+                    img = img.view(torch.uint16).view(msg.get_height(), msg.get_width())
+                    img = img.to(dtype=torch.float32)
+
+                header = Header()
+                header.frame_id = msg.get_frame_id()
+                header.stamp.sec = msg.get_timestamp_seconds()
+                header.stamp.nanosec = msg.get_timestamp_nanoseconds()
+                depth_buffers.append(img)
+                camera_headers.append(header)
+                depth_encoding.append(msg.get_encoding())
             if (isinstance(msg, JointState)):
-                self._js_buffer = {'joint_names': msg.name, 'position': msg.position}
-                self._timestamp = msg.header.stamp
+                js_buffer = {'joint_names': msg.name, 'position': msg.position}
+                timestamp = msg.header.stamp
 
-    def camera_info_cb(self, msg, idx):
-        self._depth_intrinsics[idx] = msg.k
+        if timestamp is None or len(camera_headers) == 0:
+            self.get_logger().warn('No timestamp or camera headers found')
+            return
 
-    def publish_robot_spheres(self, traj: CuJointState):
-        kin_state = self._cumotion_segmenter.robot_world.get_kinematics(traj.position)
-        spheres = kin_state.link_spheres_tensor.cpu().numpy()
-        current_time = self.get_clock().now().to_msg()
-
-        m_arr = get_spheres_marker(
-            spheres[0],
-            self._cumotion_base_frame,
-            current_time,
-            rgb=[0.0, 1.0, 0.0, 1.0],
-        )
-
-        self.debug_robot_publisher.publish(m_arr)
-
-    def is_subscribed(self) -> bool:
-        count_mask = max(
-            [mask_pub.get_subscription_count() for mask_pub in self.mask_publishers]
-            + [seg_pub.get_subscription_count() for seg_pub in self.segmented_publishers]
-        )
-        if count_mask > 0:
-            return True
-        return False
-
-    def filter_depth_mask(self, robot_mask, depth_image):
-        # pixels with depth <= 0.0 are invalid
-        invalid_depth_value = 0.0
-        # get the invalid depth mask
-        invalid_depth_mask = depth_image <= invalid_depth_value
-        # combine the invalid depth and robot masks
-        combined_mask = np.logical_or(robot_mask, invalid_depth_mask).astype(np.uint8) * 255
-        # filter speckles from the combined mask
-        filtered_combined_mask = cv2.filterSpeckles(
-            combined_mask, 255, self._max_filtered_speckles_size, 0)[0]
-        # Set depth pixels to invalid if they are masked in the filtered mask
-        depth_image[filtered_combined_mask.astype(bool)] = invalid_depth_value
-        return (filtered_combined_mask, depth_image)
-
-    def publish_images(self, depth_masks, segmented_depth_images, camera_header, idx: int):
-        depth_mask = depth_masks[idx]
-        segmented_depth = segmented_depth_images[idx]
-
-        if self._filter_speckles_in_mask:
-            depth_mask, segmented_depth = self.filter_depth_mask(depth_mask, segmented_depth)
-
-        if self.mask_publishers[idx].get_subscription_count() > 0:
-            msg = self.br.cv2_to_imgmsg(depth_mask, 'mono8')
-            msg.header = camera_header[idx]
-            self.mask_publishers[idx].publish(msg)
-
-        if self.segmented_publishers[idx].get_subscription_count() > 0:
-            if self._depth_encoding[idx] == '16UC1':
-                segmented_depth = segmented_depth.astype(np.uint16)
-            elif self._depth_encoding[idx] == '32FC1':
-                segmented_depth = segmented_depth / 1000.0
-            msg = self.br.cv2_to_imgmsg(segmented_depth, self._depth_encoding[idx])
-            msg.header = camera_header[idx]
-            self.segmented_publishers[idx].publish(msg)
-
-    def on_timer(self):
         computation_time = -1.0
         node_time = -1.0
-
-        if not self.is_subscribed():
-            return
-
-        if ((not all(isinstance(intrinsic, np.ndarray) for intrinsic in self._depth_intrinsics))
-                or (len(self._camera_headers) == 0) or (self._timestamp is None)):
-            return
-
-        timestamp = self._timestamp
 
         # Read camera transforms
         if self._robot_pose_cameras is None:
             self.get_logger().info('Reading TF from cameras')
-
-            with self.lock:
-                camera_headers = deepcopy(self._camera_headers)
 
             for i in range(self._num_cameras):
                 if self._robot_pose_camera[i] is None:
@@ -323,9 +311,9 @@ class CumotionRobotSegmenter(Node):
                             ]
                         )
                     except TransformException as ex:
-                        self.get_logger().debug(
+                        self.get_logger().error(
                             f'Could not transform {camera_headers[i].frame_id}'
-                            f'to { self._cumotion_base_frame}: {ex}')
+                            f'to {self._cumotion_base_frame}: {ex}')
                         continue
             if None not in self._robot_pose_camera:
                 self._robot_pose_cameras = CuPose.cat(self._robot_pose_camera)
@@ -335,20 +323,15 @@ class CumotionRobotSegmenter(Node):
         if self._robot_pose_cameras is None:
             return
 
-        with self.lock:
-            timestamp = self._timestamp
-            depth_image = np.copy(np.stack((self._depth_buffers)))
-            intrinsics = np.copy(np.stack(self._depth_intrinsics))
-            js = np.copy(self._js_buffer['position'])
-            j_names = deepcopy(self._js_buffer['joint_names'])
-            camera_headers = deepcopy(self._camera_headers)
-            self._timestamp = None
-            self._camera_headers = []
         start_node_time = time.time()
 
-        depth_image = self._tensor_args.to_device(depth_image.astype(np.float32))
+        depth_image = torch.stack(depth_buffers)
+        intrinsics = np.copy(np.stack(self._depth_intrinsics))
+        js = np.copy(js_buffer['position'])
+        j_names = deepcopy(js_buffer['joint_names'])
+
         depth_image = depth_image.view(
-            self._num_cameras, depth_image.shape[-2], depth_image.shape[-1])
+           self._num_cameras, depth_image.shape[-2], depth_image.shape[-1])
 
         if not self._cumotion_segmenter.ready:
             intrinsics = self._tensor_args.to_device(intrinsics).view(self._num_cameras, 3, 3)
@@ -366,11 +349,10 @@ class CumotionRobotSegmenter(Node):
         if self._log_debug:
             torch.cuda.synchronize()
             computation_time = time.time() - start_segmentation_time
-        depth_mask = depth_mask.cpu().numpy().astype(np.uint8) * 255
-        segmented_depth = segmented_depth.cpu().numpy()
+        depth_mask = (depth_mask * 255).to(torch.uint8)
 
         for x in range(depth_mask.shape[0]):
-            self.publish_images(depth_mask, segmented_depth, camera_headers, x)
+            self.publish_images(depth_mask, depth_encoding, segmented_depth, camera_headers, x)
 
         self.__update_link_spheres_server.publish_all_active_spheres(
             robot_joint_states=js,
@@ -385,6 +367,87 @@ class CumotionRobotSegmenter(Node):
             node_time = time.time() - start_node_time
             self.get_logger().info(f'Node Time(ms), Computation Time(ms): {node_time * 1000.0},\
                                     {computation_time * 1000.0}')
+
+    """
+    Callback function for camera info
+    """
+    def camera_info_cb(self, msg, idx):
+        self._depth_intrinsics[idx] = msg.k
+
+    """
+    Publish the robot spheres to the debug topic
+    """
+    def publish_robot_spheres(self, traj: CuJointState):
+        kin_state = self._cumotion_segmenter.robot_world.get_kinematics(traj.position)
+        spheres = kin_state.link_spheres_tensor.cpu().numpy()
+        current_time = self.get_clock().now().to_msg()
+
+        m_arr = get_spheres_marker(
+            spheres[0],
+            self._cumotion_base_frame,
+            current_time,
+            rgb=[0.0, 1.0, 0.0, 1.0],
+        )
+
+        self.debug_robot_publisher.publish(m_arr)
+
+    def filter_depth_mask(self, robot_mask, depth_image):
+        # pixels with depth <= 0.0 are invalid
+        invalid_depth_value = 0.0
+        # get the invalid depth mask
+        invalid_depth_mask = depth_image <= invalid_depth_value
+        # combine the invalid depth and robot masks
+        combined_mask = np.logical_or(robot_mask, invalid_depth_mask).astype(np.uint8) * 255
+        # filter speckles from the combined mask
+        filtered_combined_mask = cv2.filterSpeckles(
+            combined_mask, 255, self._max_filtered_speckles_size, 0)[0]
+        # Set depth pixels to invalid if they are masked in the filtered mask
+        depth_image[filtered_combined_mask.astype(bool)] = invalid_depth_value
+        return (filtered_combined_mask, depth_image)
+
+    """
+    Publish the depth mask and segmented depth image using PyNITROS
+    """
+    def publish_images(self,
+                       depth_masks,
+                       depth_encoding,
+                       segmented_depth_images,
+                       camera_header,
+                       idx):
+        depth_mask = depth_masks[idx]
+        segmented_depth = segmented_depth_images[idx]
+
+        if self._filter_speckles_in_mask:
+            depth_mask, segmented_depth = self.filter_depth_mask(depth_mask, segmented_depth)
+
+        depth_mask_stride = depth_mask.stride(0) * depth_mask.element_size()
+        built_mask_image = self.mask_builder.build(
+                                            depth_mask.data_ptr(),
+                                            depth_mask.shape[0],
+                                            depth_mask.shape[1],
+                                            depth_mask_stride,
+                                            'mono8',
+                                            camera_header[idx],
+                                            0,
+                                            False)
+        self.mask_publishers[idx].publish(built_mask_image)
+
+        if depth_encoding[idx] == '32FC1':
+            segmented_depth = segmented_depth / 1000.0
+        elif depth_encoding[idx] == '16UC1':
+            segmented_depth = segmented_depth.to(torch.uint16)
+
+        segmented_depth_stride = segmented_depth.stride(0) * segmented_depth.element_size()
+        built_depth_image = self.world_depth_builder.build(
+                                            segmented_depth.data_ptr(),
+                                            segmented_depth.shape[0],
+                                            segmented_depth.shape[1],
+                                            segmented_depth_stride,
+                                            depth_encoding[idx],
+                                            camera_header[idx],
+                                            0,
+                                            False)
+        self.world_depth_publishers[idx].publish(built_depth_image)
 
 
 def main(args=None):

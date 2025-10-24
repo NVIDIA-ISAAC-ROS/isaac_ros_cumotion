@@ -3,14 +3,14 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES',
 # Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
-# Licensed under the Apache License, Version 2.0 (the 'License');
+# Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
 # http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an 'AS IS' BASIS,
+# distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
@@ -118,8 +118,8 @@ class GoalInitializerNode(Node):
             goal_change_distance = np.linalg.norm(self._previous_goal_position - new_goal)
             if (goal_change_distance <= self._goal_change_position_threshold):
                 self.get_logger().warning(
-                    f'New goal position is within {self._goal_change_position_threshold} meters at \
-                    {goal_change_distance}, not setting new goal. Move goal further to set \
+                    f'New goal position is within {self._goal_change_position_threshold} meters \
+                    at {goal_change_distance}, not setting new goal. Move goal further to set \
                     new goal.')
                 return
 
