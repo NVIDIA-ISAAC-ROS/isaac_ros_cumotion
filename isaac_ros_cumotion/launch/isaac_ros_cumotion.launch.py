@@ -50,6 +50,29 @@ def generate_launch_description():
     launch_args, launch_configs = launch_args_from_params(
         'isaac_ros_cumotion', 'params', 'isaac_ros_cumotion_params.yaml', 'cumotion_planner')
 
+    env_variables = dict(os.environ)
+
+    if launch_configs['enable_cuda_mps']:
+        env_variables.update({
+            'CUDA_MPS_ACTIVE_THREAD_PERCENTAGE':
+                launch_configs['cuda_mps_active_thread_percentage'],
+            'CUDA_MPS_PIPE_DIRECTORY': launch_configs['cuda_mps_pipe_directory'],
+            'CUDA_MPS_CLIENT_PRIORITY': launch_configs['cuda_mps_client_priority']
+        })
+
+    # Static planning scene server
+    static_planning_scene_server = Node(
+        package='isaac_ros_cumotion',
+        executable='static_planning_scene',
+        name='static_planning_scene_server',
+        output='screen',
+        parameters=[{
+            'moveit_collision_objects_scene_file':
+                LaunchConfiguration('cumotion_planner.moveit_collision_objects_scene_file')
+        }],
+        emulate_tty=True,
+    )
+
     cumotion_planner_node = Node(
         name='cumotion_planner',
         package='isaac_ros_cumotion',
@@ -59,6 +82,10 @@ def generate_launch_description():
             launch_configs
         ],
         output='screen',
+        env=env_variables
     )
 
-    return launch.LaunchDescription(launch_args + [cumotion_planner_node])
+    return launch.LaunchDescription(launch_args + [
+        static_planning_scene_server,
+        cumotion_planner_node
+    ])

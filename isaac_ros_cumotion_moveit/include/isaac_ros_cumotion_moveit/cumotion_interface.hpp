@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@
 
 #include <memory>
 
-#include "moveit/planning_interface/planning_interface.h"
+#include "moveit/planning_interface/planning_interface.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 #include "isaac_ros_cumotion_moveit/cumotion_move_group_client.hpp"
@@ -41,7 +41,7 @@ public:
   {
   }
 
-  bool solve(
+  void solve(
     const planning_scene::PlanningSceneConstPtr & planning_scene,
     const planning_interface::MotionPlanRequest & request,
     planning_interface::MotionPlanDetailedResponse & response);

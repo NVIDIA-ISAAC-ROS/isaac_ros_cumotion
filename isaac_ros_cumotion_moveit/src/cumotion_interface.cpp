@@ -20,9 +20,9 @@
 #include <chrono>
 #include <memory>
 
-#include "moveit/planning_interface/planning_interface.h"
-#include "moveit/planning_scene/planning_scene.h"
-#include "moveit/robot_state/conversions.h"
+#include "moveit/planning_interface/planning_interface.hpp"
+#include "moveit/planning_scene/planning_scene.hpp"
+#include "moveit/robot_state/conversions.hpp"
 #include "rclcpp/rclcpp.hpp"
 
 namespace nvidia
@@ -40,7 +40,7 @@ constexpr unsigned kTimeoutIntervalInSeconds = 5;
 
 }  // namespace
 
-bool CumotionInterface::solve(
+void CumotionInterface::solve(
   const planning_scene::PlanningSceneConstPtr & planning_scene,
   const planning_interface::MotionPlanRequest & request,
   planning_interface::MotionPlanDetailedResponse & response)
@@ -64,22 +64,22 @@ bool CumotionInterface::solve(
 
   if (!action_client_->result_ready) {
     RCLCPP_ERROR(node_->get_logger(), "Timed out!");
-    response.error_code_.val = moveit_msgs::msg::MoveItErrorCodes::TIMED_OUT;
+    response.error_code.val = moveit_msgs::msg::MoveItErrorCodes::TIMED_OUT;
     planner_busy = false;
-    return false;
+    return;
   }
   RCLCPP_INFO(node_->get_logger(), "Received trajectory result");
 
   if (!action_client_->success) {
     RCLCPP_ERROR(node_->get_logger(), "No trajectory");
-    response.error_code_.val = moveit_msgs::msg::MoveItErrorCodes::PLANNING_FAILED;
+    response.error_code.val = moveit_msgs::msg::MoveItErrorCodes::PLANNING_FAILED;
     planner_busy = false;
-    return false;
+    return;
   }
   RCLCPP_INFO(node_->get_logger(), "Trajectory success!");
 
-  response.error_code_ = action_client_->plan_response.error_code;
-  response.description_ = action_client_->plan_response.description;
+  response.error_code = action_client_->plan_response.error_code;
+  response.description = action_client_->plan_response.description;
   auto result_traj = std::make_shared<robot_trajectory::RobotTrajectory>(
     planning_scene->getRobotModel(), request.group_name);
   moveit::core::RobotState robot_state(planning_scene->getRobotModel());
@@ -89,12 +89,11 @@ bool CumotionInterface::solve(
   result_traj->setRobotTrajectoryMsg(
     robot_state,
     action_client_->plan_response.trajectory[0]);
-  response.trajectory_.clear();
-  response.trajectory_.push_back(result_traj);
-  response.processing_time_ = action_client_->plan_response.processing_time;
+  response.trajectory.clear();
+  response.trajectory.push_back(result_traj);
+  response.processing_time = action_client_->plan_response.processing_time;
 
   planner_busy = false;
-  return true;
 }
 
 }  // namespace manipulation

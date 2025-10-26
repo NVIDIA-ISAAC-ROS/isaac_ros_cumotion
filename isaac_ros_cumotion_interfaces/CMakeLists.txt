@@ -37,10 +37,16 @@ set(ACTION_FILES
 "action/AttachObject.action"
 "action/MotionPlan.action"
 "action/UpdateLinkSpheres.action"
+"action/IKSolution.action"
+)
+
+set(SRV_FILES
+"srv/PublishStaticPlanningScene.srv"
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${ACTION_FILES}
+  ${SRV_FILES}
   DEPENDENCIES geometry_msgs moveit_msgs sensor_msgs visualization_msgs
 )
 ament_export_dependencies(rosidl_default_runtime)
@@ -49,7 +55,6 @@ if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
 endif()
-
 
 # Embed versioning information into installed files
 ament_index_get_resource(ISAAC_ROS_COMMON_CMAKE_PATH isaac_ros_common_cmake_path isaac_ros_common)

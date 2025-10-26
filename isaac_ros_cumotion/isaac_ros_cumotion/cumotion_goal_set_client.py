@@ -8,7 +8,7 @@ from typing import List, Optional, Union
 from curobo.types.math import Pose as CuPose
 from curobo.types.state import JointState as CuJointState
 from curobo.wrap.reacher.motion_gen import MotionGenPlanConfig
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, Vector3
 from isaac_ros_cumotion_interfaces.action import MotionPlan
 from moveit_msgs.action import ExecuteTrajectory
 from moveit_msgs.msg import DisplayTrajectory, PlanningScene
@@ -26,16 +26,18 @@ class CumotionGoalSetClient:
         self.node = node
         self.cgroup = cgroup
         self.node.declare_parameter('joint_states_topic', '/joint_states')
-
-        if cgroup is None:
-            self.cgroup = MutuallyExclusiveCallbackGroup()
-
-        self.action_client = ActionClient(self.node, MotionPlan, '/cumotion/motion_plan',
-                                          callback_group=self.cgroup)
-
         self.__use_sim_time = (
             self.node.get_parameter('use_sim_time').get_parameter_value().bool_value
         )
+
+        if cgroup is None:
+            self.cgroup = MutuallyExclusiveCallbackGroup()
+            self.joint_states_callback_group = MutuallyExclusiveCallbackGroup()
+            self.planning_scene_callback_group = MutuallyExclusiveCallbackGroup()
+            self.execute_plan_callback_group = MutuallyExclusiveCallbackGroup()
+
+        self.action_client = ActionClient(self.node, MotionPlan, '/cumotion/motion_plan',
+                                          callback_group=self.cgroup)
 
         self.__traj_pub = self.node.create_publisher(
             DisplayTrajectory, '/cumotion/display_trajectory', 1)
@@ -43,16 +45,17 @@ class CumotionGoalSetClient:
             self.node.get_parameter('joint_states_topic').get_parameter_value().string_value)
         self.subscription = self.node.create_subscription(
             JointState, self.__joint_states_topic, self.js_callback, 10,
-            callback_group=self.cgroup,)
+            callback_group=self.joint_states_callback_group,)
         self._planning_scene_sub = self.node.create_subscription(
             PlanningScene, '/planning_scene', self._planning_scene_callback, 10,
-            callback_group=self.cgroup,)
+            callback_group=self.planning_scene_callback_group,)
         self.__js_buffer = None
         self.__latest_planning_scene = None
         self.__planning_scene_lock = threading.Lock()
         self.__robot_executing = False
         self.execute_plan_client = ActionClient(
-            self.node, ExecuteTrajectory, '/execute_trajectory', callback_group=self.cgroup,)
+            self.node, ExecuteTrajectory, '/execute_trajectory',
+            callback_group=self.execute_plan_callback_group,)
 
         self.result = None
 
@@ -66,12 +69,6 @@ class CumotionGoalSetClient:
             )
 
     def js_callback(self, msg):
-
-        if len(msg.velocity) == 0 or len(msg.position) == 0:
-            self.node.get_logger().error('Velocity or position is empty in joint state message'
-                                         'The joint state topic connected might have an issue.')
-            return
-
         self.__js_buffer = {
             'joint_names': msg.name,
             'position': msg.position,
@@ -123,6 +120,11 @@ class CumotionGoalSetClient:
         goal_pose_array=None,
         disable_collision_links: List[str] = [],
         update_planning_scene: bool = False,
+        mesh_resource: str = '',
+        object_shape: str = '',
+        object_scale: Vector3 = Vector3(x=0.1, y=0.1, z=0.1),
+        enable_aabb_clearing: bool = False,
+        object_esdf_clearing_padding: List[float] = [0.05, 0.05, 0.05]
     ):
         # generate request:
         self.node.get_logger().info('Moving to pose')
@@ -168,8 +170,13 @@ class CumotionGoalSetClient:
                         plan_config.pose_cost_metric.hold_vec_weight.cpu().flatten().tolist()
                     )
 
-        # send goal to client:
+        # send goal to server
         goal_msg.disable_collision_links = disable_collision_links
+        goal_msg.mesh_resource = mesh_resource
+        goal_msg.object_shape = object_shape
+        goal_msg.object_scale = object_scale
+        goal_msg.enable_aabb_clearing = enable_aabb_clearing
+        goal_msg.object_esdf_clearing_padding = object_esdf_clearing_padding
         result = self.send_plan_goal(goal_msg, visualize_trajectory)
         if execute:
             if result.success:
@@ -183,7 +190,7 @@ class CumotionGoalSetClient:
         link_name: str,
         start_state: Optional[CuJointState] = None,
         grasp_approach_offset_distance: List[float] = [0, 0, -0.15],
-        grasp_approach_path_constraint: Union[None, List[float]] = [0.1, 0.1, 0.1, 0.1, 0.1, 0.0],
+        grasp_approach_path_constraint: Union[None, List[float]] = [0.5, 0.5, 0.5, 0.1, 0.1, 0.0],
         retract_offset_distance: List[float] = [0, 0, -0.15],
         retract_path_constraint: Union[None, List[float]] = [0.1, 0.1, 0.1, 0.1, 0.1, 0.0],
         grasp_approach_constraint_in_goal_frame: bool = True,
@@ -197,6 +204,11 @@ class CumotionGoalSetClient:
         update_planning_scene: bool = False,
         plan_approach_to_grasp: bool = True,
         plan_grasp_to_retract: bool = True,
+        object_frame: str = 'detected_object1',
+        world_frame: str = 'world',
+        mesh_resource: str = '',
+        enable_aabb_clearing: bool = False,
+        object_esdf_clearing_padding: List[float] = [0.05, 0.05, 0.05]
     ):
         # generate request:
         self.node.get_logger().info('Moving to grasp')
@@ -257,7 +269,11 @@ class CumotionGoalSetClient:
         goal_msg.plan_grasp = True
         goal_msg.plan_approach_to_grasp = plan_approach_to_grasp
         goal_msg.plan_grasp_to_retract = plan_grasp_to_retract
-        goal_msg.grasp_offset_pose = grasp_offset_pose
+        goal_msg.object_frame = object_frame
+        goal_msg.world_frame = world_frame
+        goal_msg.mesh_resource = mesh_resource
+        goal_msg.enable_aabb_clearing = enable_aabb_clearing
+        goal_msg.object_esdf_clearing_padding = object_esdf_clearing_padding
         result = self.send_plan_goal(goal_msg, visualize_trajectory)
         if execute:
             if result.success:
@@ -266,12 +282,74 @@ class CumotionGoalSetClient:
 
     def move_joint(
         self,
-        goal_state: CuJointState,
-        start_state: Optional[CuJointState] = None,
-        plan_config: Optional[MotionGenPlanConfig] = None,
+        goal_state: JointState,
+        start_state: Optional[JointState] = None,
+        visualize_trajectory: bool = True,
+        time_dilation_factor: float = 0.2,
+        update_planning_scene: bool = False,
+        disable_collision_links: List[str] = [],
+        mesh_resource: str = '',
+        object_shape: str = '',
+        object_scale: Vector3 = Vector3(x=0.1, y=0.1, z=0.1),
+        enable_aabb_clearing: bool = False,
+        object_esdf_clearing_padding: List[float] = [0.05, 0.05, 0.05],
+        execute: bool = False
     ):
-        # Reserving for future use
-        pass
+        """
+        Plan to a joint state.
+
+        Args
+        ----
+            goal_state: JointState to plan to
+            start_state: Optional[JointState] to start from
+            visualize_trajectory: Whether to visualize the trajectory
+            time_dilation_factor: Time dilation factor
+            update_planning_scene: Whether to update the planning scene
+            disable_collision_links: List of links to disable collision
+            mesh_resource: Mesh resource
+            object_shape: Object shape
+            object_scale: Object scale
+            enable_aabb_clearing: Whether to enable AABB clearing
+            object_esdf_clearing_padding: Object ESDF clearing padding
+            execute: Whether to execute the plan
+
+        Returns
+        -------
+            result: Result of the plan
+
+        """
+        self.node.get_logger().info('Planning to joint state')
+        goal_msg = MotionPlan.Goal()
+
+        goal_msg.goal_state.position = goal_state.position
+        goal_msg.goal_state.name = goal_state.name
+        goal_msg.plan_cspace = True
+        goal_msg.use_current_state = True
+
+        if start_state is not None:
+            goal_msg.use_current_state = False
+            goal_msg.start_state.position = start_state.position
+            goal_msg.start_state.name = start_state.name
+
+        goal_msg.use_planning_scene = update_planning_scene
+        with self.__planning_scene_lock:
+            if update_planning_scene and self.__latest_planning_scene is not None:
+                goal_msg.world = self.__latest_planning_scene.world
+
+        # send goal to client:
+        goal_msg.disable_collision_links = disable_collision_links
+        goal_msg.mesh_resource = mesh_resource
+        goal_msg.object_shape = object_shape
+        goal_msg.object_scale = object_scale
+        goal_msg.time_dilation_factor = time_dilation_factor
+        goal_msg.enable_aabb_clearing = enable_aabb_clearing
+        goal_msg.object_esdf_clearing_padding = object_esdf_clearing_padding
+        result = self.send_plan_goal(goal_msg, visualize_trajectory)
+
+        if execute:
+            if result.success:
+                self.execute_plan(result.planned_trajectory[0])
+        return result
 
     def execute_plan(self, robot_trajectory, wait_until_complete: bool = True):
         # check if robot's current state is within start state of plan:
@@ -288,6 +366,11 @@ class CumotionGoalSetClient:
 
         current_js = copy.deepcopy(self.__js_buffer)
         self.__js_buffer = None
+
+        if len(current_js['velocity']) == 0 or len(current_js['position']) == 0:
+            self.node.get_logger().error('Velocity or position is empty in joint state message')
+            return False, None
+
         start_point = robot_trajectory.joint_trajectory.points[0]
         start_point_names = robot_trajectory.joint_trajectory.joint_names
         current_names = current_js['joint_names']

@@ -21,3 +21,8 @@
     cuda_device: 0
     log_debug: False
     update_link_sphere_server: 'segmenter_attach_object'
+    enable_cuda_mps: False
+    cuda_mps_pipe_directory: '/workspaces/isaac_ros-dev/ros_ws/mps_pipe_dir'
+    cuda_mps_client_priority: 1
+    cuda_mps_active_thread_percentage: 100
+    num_cameras: 1

@@ -1,0 +1,16 @@
+# Request
+# Optional scene file path. If empty, the server will use its default scene file path
+string scene_file_path
+---
+# Response
+# MoveIt PlanningScene containing collision objects published from scene file
+moveit_msgs/PlanningScene planning_scene
+# Success or failure
+string message
+bool success
+uint8 status
+# Status fields
+uint8 SUCCESS=0
+uint8 NO_SCENE_FILE=1
+uint8 SCENE_FILE_NOT_FOUND=2
+uint8 PARSING_ERROR=3

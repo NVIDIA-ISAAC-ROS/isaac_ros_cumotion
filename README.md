@@ -2,7 +2,7 @@
 
 NVIDIA accelerated packages for arm motion planning and control
 
-<div align="center"><a class="reference internal image-reference" href="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/main/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_cumotion/cumotion_ur10_demo.gif/"><img alt="image" src="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/main/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_cumotion/cumotion_ur10_demo.gif/" width="600px"/></a></div>
+<div align="center"><a class="reference internal image-reference" href="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/release-4.0/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_cumotion/cumotion_ur10_demo.gif/"><img alt="image" src="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/release-4.0/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_cumotion/cumotion_ur10_demo.gif/" width="600px"/></a></div>
 
 ## Overview
 
@@ -24,16 +24,16 @@ The key advantages of using Isaac ROS cuMotion are:
   cuMotion can often produce a valid trajectory when other planners might fail altogether.
 * **Improved planning times:** cuMotion takes advantage of CUDA acceleration to produce
   collision-free, optimal-time trajectories in a fraction of a second.
-* **Avoidance of obstacles captured by depth camera(s):** cuMotion optionally leverages
+* **Avoidance of obstacles captured by depth cameras:** cuMotion optionally leverages
   [nvblox](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_nvblox/index.html) to perform 3D reconstruction of an environment from one or more depth image
   streams.  The environment is represented as a signed distance field (SDF) for
   efficient obstacle-aware planning.  Support is provided for segmenting and filtering
-  the robot itself from the depth stream(s).
+  the robot itself from the depth streams.
 * **Flexibility:** A modular design simplifies integration with existing ROS 2 workflows,
   especially those already using MoveIt 2.
 
 > [!Warning]
-> Before using or developing with cuMotion or other Isaac Manipulator software, please read and
+> Before using or developing with cuMotion or other Isaac for Manipulation software, please read and
 > familiarize yourself with the associated safety information that is provided by your robot
 > manufacturer.
 
@@ -67,7 +67,7 @@ The Isaac ROS cuMotion repository currently contains the following packages:
 `isaac_ros_cumotion_moveit`:
 : This package provides a plugin for MoveIt 2 that exposes cuMotion as an external planner, leveraging `isaac_ros_cumotion`.
 
-Isaac ROS cuMotion is also featured as part of [Isaac Manipulator](https://nvidia-isaac-ros.github.io/reference_workflows/isaac_manipulator/index.html).
+Isaac ROS cuMotion is also featured as part of [Isaac for Manipulation](https://nvidia-isaac-ros.github.io/reference_workflows/isaac_for_manipulation/index.html).
 
 ---
 
@@ -95,11 +95,11 @@ Please visit the [Isaac ROS Documentation](https://nvidia-isaac-ros.github.io/re
 * [`isaac_ros_esdf_visualizer`](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_esdf_visualizer/index.html)
   * [Overview](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_esdf_visualizer/index.html#overview)
   * [API](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_esdf_visualizer/index.html#api)
+* [`isaac_ros_goal_setter_interfaces`](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_goal_setter_interfaces/index.html)
 * [`isaac_ros_moveit_goal_setter`](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_moveit_goal_setter/index.html)
   * [Overview](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_moveit_goal_setter/index.html#overview)
   * [API](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_moveit_goal_setter/index.html#api)
-* [`isaac_ros_moveit_goal_setter_interfaces`](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_cumotion/isaac_ros_moveit_goal_setter_interfaces/index.html)
 
 ## Latest
 
-Update 2024-12-10: Added object following and pick-and-place workflows
+Update 2025-10-24: Added joint space planner and support for PyNITROS

@@ -12,6 +12,7 @@ from os import path
 
 import threading
 import time
+from typing import List, Tuple
 
 from curobo.geom.sdf.world import CollisionCheckerType
 from curobo.geom.types import Cuboid
@@ -28,13 +29,18 @@ from curobo.wrap.reacher.motion_gen import MotionGen
 from curobo.wrap.reacher.motion_gen import MotionGenConfig
 from curobo.wrap.reacher.motion_gen import MotionGenPlanConfig
 from curobo.wrap.reacher.motion_gen import MotionGenStatus
-from geometry_msgs.msg import Point
-from geometry_msgs.msg import Vector3
+from geometry_msgs.msg import Point, Pose as RosPose, Vector3
+from isaac_manipulator_ros_python_utils.manipulator_types import (
+    ObjectAttachmentShape
+)
 from isaac_ros_cumotion.update_kinematics import get_robot_config
 from isaac_ros_cumotion.update_kinematics import UpdateLinkSpheresServer
-from isaac_ros_cumotion_python_utils.utils import \
-    get_grid_center, get_grid_min_corner, get_grid_size, is_grid_valid, \
+from isaac_ros_cumotion_interfaces.action import IKSolution
+from isaac_ros_cumotion_interfaces.srv import PublishStaticPlanningScene
+from isaac_ros_cumotion_python_utils.utils import (
+    get_grid_center, get_grid_min_corner, get_grid_size, is_grid_valid,
     load_grid_corners_from_workspace_file
+)
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import CollisionObject
 from moveit_msgs.msg import MoveItErrorCodes
@@ -48,9 +54,11 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from shape_msgs.msg import SolidPrimitive
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
 import torch
-from trajectory_msgs.msg import JointTrajectory
-from trajectory_msgs.msg import JointTrajectoryPoint
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+import trimesh
 from visualization_msgs.msg import Marker
 
 
@@ -90,6 +98,8 @@ class CumotionActionServer(Node):
         self.declare_parameter('use_aabb_on_request', True)
 
         self.declare_parameter('esdf_service_name', '/nvblox_node/get_esdf_and_gradient')
+        self.declare_parameter('static_planning_scene_service_name',
+                               '/publish_static_planning_scene')
         self.declare_parameter('enable_curobo_debug_mode', False)
         self.declare_parameter('override_moveit_scaling_factors', False)
         self.declare_parameter('update_link_sphere_server',
@@ -227,14 +237,16 @@ class CumotionActionServer(Node):
         # Setup the grid position and dimension.
         if path.exists(self.__workspace_file_path):
             self.get_logger().info(
-                f'Loading grid center and dims from workspace file: {self.__workspace_file_path}.')
+                f'Loading grid center and dims from workspace file: '
+                f'{self.__workspace_file_path}.')
             min_corner, max_corner = load_grid_corners_from_workspace_file(
                 self.__workspace_file_path)
             self.__grid_size_m = get_grid_size(min_corner, max_corner, self.__voxel_size)
             self.__grid_center_m = get_grid_center(min_corner, self.__grid_size_m)
 
             self.get_logger().info(
-                f'Loaded grid dims: {self.__grid_size_m}, ' + f'voxel size: {self.__voxel_size}')
+                f'Loaded grid dims: {self.__grid_size_m}, '
+                f'voxel size: {self.__voxel_size}')
         else:
             self.get_logger().info(
                 'Loading grid position and dims from grid_center_m and grid_size_m parameters.')
@@ -252,14 +264,50 @@ class CumotionActionServer(Node):
             self.__esdf_client = self.create_client(
                 EsdfAndGradients, esdf_service_name, callback_group=esdf_service_cb_group
             )
+            max_wait_attempts = 30
+            wait_attempts = 0
             while not self.__esdf_client.wait_for_service(timeout_sec=1.0):
+                wait_attempts += 1
+                if wait_attempts >= max_wait_attempts:
+                    self.get_logger().fatal(
+                        f'Service({esdf_service_name}) not available after 30 seconds'
+                    )
+                    raise SystemExit
                 self.get_logger().info(
                     f'Service({esdf_service_name}) not available, waiting again...'
                 )
             self.__esdf_req = EsdfAndGradients.Request()
 
+        # Static planning scene service
+        static_planning_scene_service_name = (
+            self.get_parameter('static_planning_scene_service_name')
+            .get_parameter_value().string_value
+        )
+        static_planning_scene_cb_group = MutuallyExclusiveCallbackGroup()
+        self.__static_planning_scene_client = self.create_client(
+            PublishStaticPlanningScene,
+            static_planning_scene_service_name,
+            callback_group=static_planning_scene_cb_group
+        )
+        max_wait_attempts = 30
+        wait_attempts = 0
+        while not self.__static_planning_scene_client.wait_for_service(timeout_sec=1.0):
+            wait_attempts += 1
+            if wait_attempts >= max_wait_attempts:
+                self.get_logger().fatal(
+                    f'Service({static_planning_scene_service_name}) not available after 30 seconds'
+                )
+                raise SystemExit
+            self.get_logger().info(
+                f'Service({static_planning_scene_service_name}) not available, waiting again...'
+            )
+
         self.load_motion_gen()
         self.warmup()
+
+        self._world_objects = []
+        self.call_publish_static_planning_scene_service()
+
         self.__query_count = 0
         self.__tensor_args = self.motion_gen.tensor_args
         self.subscription = self.create_subscription(
@@ -279,6 +327,45 @@ class CumotionActionServer(Node):
         self._action_server = ActionServer(
             self, MoveGroup, 'cumotion/move_group', self.execute_callback
         )
+
+        self._ik_action_server = ActionServer(
+            self, IKSolution, 'cumotion/ik', self.execute_callback_ik
+        )
+
+        self._tf_buffer = Buffer(
+            cache_time=rclpy.duration.Duration(seconds=60.0))
+        self._tf_listener = TransformListener(self._tf_buffer, self)
+
+    def call_publish_static_planning_scene_service(self):
+        """Call the static planning scene service to load collision objects."""
+        try:
+            request = PublishStaticPlanningScene.Request()
+            future = self.__static_planning_scene_client.call_async(request)
+            future.add_done_callback(self.static_scene_service_callback)
+        except Exception as e:
+            self.get_logger().error(
+                f'Failed to call static planning scene service: {e}'
+            )
+
+    def static_scene_service_callback(self, future):
+        """Process the static planning scene service completion."""
+        try:
+            response = future.result()
+            if not response.success:
+                self.get_logger().warning(
+                    f'Static planning scene service failed: {response.message}'
+                )
+            else:
+                self._world_objects = response.planning_scene.world.collision_objects
+                self.get_logger().info(
+                    f'Updated world objects with {len(self._world_objects)} '
+                    'collision objects'
+                )
+                self.get_logger().info('Static planning scene loaded successfully.')
+        except Exception as e:
+            self.get_logger().error(
+                f'Failed to get static planning scene service result: {e}'
+            )
 
     def js_callback(self, msg):
         self.__js_buffer = {
@@ -361,7 +448,7 @@ class CumotionActionServer(Node):
             rgb=[0.0, 1.0, 1.0, 1.0]
         )
 
-    def update_voxel_grid(self):
+    def update_voxel_grid(self, objects_to_clear=None) -> bool:
         self.get_logger().info('Calling ESDF service')
 
         # Get the AABB
@@ -376,7 +463,7 @@ class CumotionActionServer(Node):
         aabb_size.z = self.__grid_size_m[2]
 
         # Request the esdf grid
-        esdf_future = self.send_request(aabb_min, aabb_size)
+        esdf_future = self.send_request(aabb_min, aabb_size, objects_to_clear)
         while not esdf_future.done():
             time.sleep(0.001)
         response = esdf_future.result()
@@ -391,14 +478,21 @@ class CumotionActionServer(Node):
         self.get_logger().info('Updated ESDF grid')
         return True
 
-    def send_request(self, aabb_min_m, aabb_size_m):
+    def send_request(self, aabb_min_m, aabb_size_m, objects_to_clear=None):
         self.__esdf_req.visualize_esdf = True
         self.__esdf_req.update_esdf = self.__update_esdf_on_request
         self.__esdf_req.use_aabb = self.__use_aabb_on_request
         self.__esdf_req.frame_id = self.__robot_base_frame
         self.__esdf_req.aabb_min_m = aabb_min_m
         self.__esdf_req.aabb_size_m = aabb_size_m
+        if objects_to_clear:
+            self.__esdf_req.aabbs_to_clear_min_m = objects_to_clear[0]
+            self.__esdf_req.aabbs_to_clear_size_m = objects_to_clear[1]
+            self.__esdf_req.spheres_to_clear_center_m = objects_to_clear[2]
+            self.__esdf_req.spheres_to_clear_radius_m = objects_to_clear[3]
+
         self.get_logger().info(
+            f'use_aabb_on_request: {self.__use_aabb_on_request}\n'
             f'ESDF  req = {self.__esdf_req.aabb_min_m}, {self.__esdf_req.aabb_size_m}'
         )
         esdf_future = self.__esdf_client.call_async(self.__esdf_req)
@@ -591,7 +685,7 @@ class CumotionActionServer(Node):
         traj.joint_trajectory = cmd_traj
         return traj
 
-    def update_world_objects(self, moveit_objects):
+    def update_world_objects(self, moveit_objects, objects_to_clear=None) -> bool:
         world_update_status = True
         if len(moveit_objects) > 0:
             cuboid_list = []
@@ -618,7 +712,7 @@ class CumotionActionServer(Node):
             ).get_collision_check_world()
             self.motion_gen.update_world(world_model)
         if self.__read_esdf_grid:
-            world_update_status = self.update_voxel_grid()
+            world_update_status = self.update_voxel_grid(objects_to_clear)
         if self.__publish_curobo_world_as_voxels:
             if self.__voxel_pub.get_subscription_count() > 0:
                 # Calculate occupancy and publish only when subscribed.
@@ -871,6 +965,275 @@ class CumotionActionServer(Node):
         marker.header.stamp = self.get_clock().now().to_msg()
 
         self.__voxel_pub.publish(marker)
+
+    def get_cu_pose_from_ros_pose(self, ros_pose: Point) -> Pose:
+        """
+        Convert a ROS Point message to a Curobo Pose.
+
+        Args
+        ----
+            ros_pose: ROS Point message
+
+        Returns
+        -------
+            cu_pose: Curobo Pose
+
+        """
+        cu_pose = Pose.from_list(
+            [ros_pose.position.x,
+             ros_pose.position.y,
+             ros_pose.position.z,
+             ros_pose.orientation.w,
+             ros_pose.orientation.x,
+             ros_pose.orientation.y,
+             ros_pose.orientation.z]
+        )
+        return cu_pose
+
+    def get_joint_state_from_tensor(self, joint_state_position_tensor: torch.Tensor,
+                                    joint_state_velocity_tensor: torch.Tensor,
+                                    joint_names: list[str],
+                                    success_tensor: torch.Tensor) -> List[JointState]:
+        """
+        Convert PyTorch tensors to a list of ROS JointState messages.
+
+        Args
+        ----
+            joint_state_position_tensor: PyTorch tensor of shape [batch, num_solutions, num_joints]
+            joint_state_velocity_tensor: PyTorch tensor of shape [batch, num_solutions, num_joints]
+            joint_names: List of joint names
+            success_tensor: PyTorch tensor of shape [batch, num_solutions]
+
+        Returns
+        -------
+            List[JointState]: List of ROS JointState messages
+
+        """
+        position_np = joint_state_position_tensor.detach().cpu().numpy()
+        velocity_np = joint_state_velocity_tensor.detach().cpu().numpy()
+
+        _, num_solutions, num_joints = position_np.shape
+
+        joint_states = []
+        success_list = []
+
+        for solution_idx in range(num_solutions):
+            joint_state = JointState()
+            joint_state.header.stamp = self.get_clock().now().to_msg()
+
+            joint_state.name = joint_names
+            joint_state.position = position_np[0, solution_idx, :].tolist()
+            joint_state.velocity = velocity_np[0, solution_idx, :].tolist()
+            joint_state.effort = [0.0] * num_joints
+
+            joint_states.append(joint_state)
+            success_list.append(success_tensor[0, solution_idx].item())
+
+        return joint_states, success_list
+
+    def get_object_pose(self, world_frame='world', object_frame='detected_object1') -> RosPose:
+        """Get object pose in world frame from TF."""
+        try:
+            tf = self._tf_buffer.lookup_transform(
+                world_frame,
+                object_frame,
+                rclpy.time.Time()
+            )
+            pose = RosPose()
+            pose.position.x = tf.transform.translation.x
+            pose.position.y = tf.transform.translation.y
+            pose.position.z = tf.transform.translation.z
+            pose.orientation.x = tf.transform.rotation.x
+            pose.orientation.y = tf.transform.rotation.y
+            pose.orientation.z = tf.transform.rotation.z
+            pose.orientation.w = tf.transform.rotation.w
+            self.get_logger().info(f'TF from {world_frame} to {object_frame}: {pose}')
+            return pose
+        except Exception as ex:
+            self.get_logger().error(f'Could not transform {world_frame} to {object_frame}: {ex}')
+            return None
+
+    def calculate_aabbs_to_clear(
+            self,
+            world_pose_object: RosPose,
+            mesh_resource: str,
+            object_esdf_clearing_padding: List[float],
+            object_shape: str = ObjectAttachmentShape.CUSTOM_MESH.value,
+            object_scale: Vector3 = None
+    ) -> Tuple[List[Point], List[Vector3], List[Point], List[float]]:
+        """
+        Compute the AABBs and spheres to clear from the ESDF.
+
+        Args
+        ----
+            world_pose_object: The target pose to be cleared relative to the world frame
+            mesh_resource: Path to object mesh file
+            object_esdf_clearing_padding: Padding to add to the object for ESDF clearing
+            object_shape: Shape of the object (ObjectAttachmentShape enum value)
+            object_scale: Scale of the object (for CUBOID or SPHERE)
+
+        Returns
+        -------
+            Tuple containing:
+            - List of AABB minimum corners
+            - List of AABB sizes
+            - List of sphere centers
+            - List of sphere radii
+
+        Raises
+        ------
+            ValueError: If object_shape is not a valid ObjectAttachmentShape enum value
+
+        """
+        valid_shapes = [shape.value for shape in ObjectAttachmentShape]
+        if object_shape not in valid_shapes:
+            raise ValueError(
+                f'object_shape must be one of {valid_shapes}, got {object_shape}'
+            )
+
+        if world_pose_object is None:
+            self.get_logger().error(
+                'The target pose to be cleared relative to the world frame is not provided'
+            )
+            return [], [], [], []
+        world_pose_mat = self._create_transform_matrix(world_pose_object)
+        object_esdf_clearing_padding = np.asarray(object_esdf_clearing_padding)
+
+        if object_shape == ObjectAttachmentShape.SPHERE.value:
+            if object_scale is None:
+                self.get_logger().error('Object scale is required for SPHERE shape')
+                return [], [], [], []
+            radius = max(object_scale.x, object_scale.y, object_scale.z) / 2.0
+            center = world_pose_mat[:3, 3]
+            radius += np.max(object_esdf_clearing_padding)
+            sphere_center = [Point(x=center[0], y=center[1], z=center[2])]
+            sphere_radius = [radius]
+            return [], [], sphere_center, sphere_radius
+        elif object_shape == ObjectAttachmentShape.CUBOID.value:
+            if object_scale is None:
+                self.get_logger().error('Object scale is required for CUBOID shape')
+                return [], [], [], []
+            vertices = np.array([
+                [-object_scale.x/2, -object_scale.y/2, -object_scale.z/2],
+                [-object_scale.x/2, -object_scale.y/2, object_scale.z/2],
+                [-object_scale.x/2, object_scale.y/2, -object_scale.z/2],
+                [-object_scale.x/2, object_scale.y/2, object_scale.z/2],
+                [object_scale.x/2, -object_scale.y/2, -object_scale.z/2],
+                [object_scale.x/2, -object_scale.y/2, object_scale.z/2],
+                [object_scale.x/2, object_scale.y/2, -object_scale.z/2],
+                [object_scale.x/2, object_scale.y/2, object_scale.z/2],
+            ])
+            world_vertices = trimesh.transform_points(vertices, world_pose_mat)
+        elif object_shape == ObjectAttachmentShape.CUSTOM_MESH.value:
+            if not mesh_resource:
+                self.get_logger().error(
+                    'Mesh resource path is required for CUSTOM_MESH shape'
+                )
+                return [], [], [], []
+            try:
+                mesh = trimesh.load_mesh(mesh_resource)
+                if mesh is None:
+                    raise ValueError(f'Failed to load mesh from {mesh_resource}')
+            except Exception as e:
+                self.get_logger().error(f'Failed to load mesh from {mesh_resource}: {e}')
+                return [], [], [], []
+            world_vertices = trimesh.transform_points(mesh.vertices, world_pose_mat)
+
+        min_corner = np.min(world_vertices, axis=0) - object_esdf_clearing_padding / 2
+        max_corner = np.max(world_vertices, axis=0) + object_esdf_clearing_padding / 2
+
+        aabb_size = np.abs(max_corner - min_corner).tolist()
+        min_corner = min_corner.tolist()
+        aabb_min = [Point(x=min_corner[0], y=min_corner[1], z=min_corner[2])]
+        aabb_size = [Vector3(x=aabb_size[0], y=aabb_size[1], z=aabb_size[2])]
+        return aabb_min, aabb_size, [], []
+
+    def execute_callback_ik(self, goal_handle: IKSolution.Goal):
+        """
+        Solve IK for a given pose.
+
+        Args
+        ----
+        goal_handle : IKSolution.Goal
+            The goal handle for the IK solution.
+
+        Returns
+        -------
+        IKSolution.Result
+            The result of the IK solution.
+
+        """
+        mesh_resource = goal_handle.request.mesh_resource
+        object_shape = goal_handle.request.object_shape
+        object_scale = goal_handle.request.object_scale
+        enable_aabb_clearing = goal_handle.request.enable_aabb_clearing
+        object_esdf_clearing_padding = goal_handle.request.object_esdf_clearing_padding
+        num_solutions_to_return = goal_handle.request.num_solutions_to_return
+
+        # Get the world objects from the goal handle
+        self.get_logger().info('Firing ESDF call for IK solutions')
+        world_pose_object = self.get_object_pose(
+            goal_handle.request.world_frame,
+            goal_handle.request.object_frame
+        )
+        if enable_aabb_clearing:
+            objects_to_clear = self.calculate_aabbs_to_clear(
+                world_pose_object=world_pose_object,
+                mesh_resource=mesh_resource,
+                object_esdf_clearing_padding=object_esdf_clearing_padding,
+                object_shape=object_shape,
+                object_scale=object_scale
+            )
+        else:
+            objects_to_clear = [], [], [], []
+
+        world_update_status = self.update_world_objects(
+            self._world_objects, objects_to_clear
+        )
+        result = IKSolution.Result()
+        if not world_update_status:
+            result.error_code.val = MoveItErrorCodes.COLLISION_CHECKING_UNAVAILABLE
+            self.get_logger().error('World update failed.')
+            return result
+
+        self.get_logger().error('ESDF call for IK solutions completed')
+
+        current_joint_state = goal_handle.request.seed_state
+
+        self.get_logger().info(f'Current joint state: {current_joint_state}')
+
+        seed_config = self.tensor_args.to_device(
+            torch.as_tensor(current_joint_state.position)
+        )
+        seed_config = seed_config.unsqueeze(0).unsqueeze(0)
+
+        self.get_logger().info(
+            f'Current joint state seed config: {seed_config.shape}')
+        self.get_logger().info(f'Current joint state seed config: {seed_config}')
+
+        pose = self.get_cu_pose_from_ros_pose(goal_handle.request.goal_pose)
+        ik_result = self.motion_gen.solve_ik(
+            pose, return_seeds=num_solutions_to_return,
+            seed_config=seed_config)
+
+        result = IKSolution.Result()
+
+        joint_state_position_tensor = ik_result.js_solution.position
+        joint_state_velocity_tensor = ik_result.js_solution.velocity
+        joint_names = ik_result.js_solution.joint_names
+
+        success_tensor = ik_result.success
+
+        ros_joint_states, success_list = self.get_joint_state_from_tensor(
+            joint_state_position_tensor, joint_state_velocity_tensor, joint_names, success_tensor)
+
+        solve_time = ik_result.solve_time
+
+        result.joint_states = ros_joint_states
+        result.success = success_list
+        result.planning_time = solve_time
+        result.error_code.val = MoveItErrorCodes.SUCCESS
+        return result
 
 
 def main(args=None):

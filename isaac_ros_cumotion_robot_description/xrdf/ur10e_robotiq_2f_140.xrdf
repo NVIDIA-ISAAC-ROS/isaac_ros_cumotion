@@ -34,7 +34,7 @@ cspace:
 tool_frames: ["grasp_frame"]
 
 collision:
-  geometry: "ur_robotiq_2f_140_collision_spheres"
+  geometry: "ur10e_robotiq_2f_140_collision_spheres"
   buffer_distance:
     shoulder_link: 0.005
     upper_arm_link: 0.005
@@ -56,7 +56,7 @@ collision:
     attached_object: 0.005
 
 self_collision:
-  geometry: "ur_robotiq_2f_140_collision_spheres"
+  geometry: "ur10e_robotiq_2f_140_collision_spheres"
   buffer_distance:
     shoulder_link: 0.01
     tool0: 0.02
@@ -159,7 +159,7 @@ self_collision:
     'right_outer_knuckle']
 
 geometry:
-  ur_robotiq_2f_140_collision_spheres:
+  ur10e_robotiq_2f_140_collision_spheres:
     spheres:
       shoulder_link:
         - center: [0.0, 0.0, 0.01]
