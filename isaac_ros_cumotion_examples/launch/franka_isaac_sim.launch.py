@@ -115,6 +115,38 @@ def generate_launch_description():
         arguments=['--ros-args', '--log-level', 'info'],
     )
 
+    # Add cumotion planner node
+    xrdf_path = os.path.join(
+        get_package_share_directory('isaac_ros_cumotion_robot_description'),
+        'xrdf', 'franka.xrdf'
+    )
+    urdf_path = os.path.join(
+        get_package_share_directory('moveit_resources_panda_description'),
+        'urdf', 'panda.urdf'
+    )
+    cumotion_planner_node = Node(
+        name='cumotion_planner',
+        package='isaac_ros_cumotion',
+        namespace='',
+        executable='cumotion_planner_node',
+        parameters=[
+            {
+                'robot': xrdf_path,
+                'urdf_path': urdf_path
+            }
+        ],
+        output='screen',
+    )
+
+    # Static planning scene server
+    static_planning_scene_server = Node(
+        package='isaac_ros_cumotion',
+        executable='static_planning_scene',
+        name='static_planning_scene_server',
+        output='screen',
+        emulate_tty=True,
+    )
+
     # RViz
     rviz_config_file = os.path.join(
         get_package_share_directory('isaac_ros_cumotion_examples'),
@@ -221,5 +253,7 @@ def generate_launch_description():
             joint_state_broadcaster_spawner,
             panda_arm_controller_spawner,
             panda_hand_controller_spawner,
+            static_planning_scene_server,
+            cumotion_planner_node
         ]
     )

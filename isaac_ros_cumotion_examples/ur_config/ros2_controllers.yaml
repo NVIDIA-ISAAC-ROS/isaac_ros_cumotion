@@ -15,6 +15,7 @@ controller_manager:
 
 scaled_joint_trajectory_controller:
   ros__parameters:
+    allow_nonzero_velocity_at_trajectory_end: true
     command_interfaces:
       - position
     state_interfaces:
@@ -30,6 +31,7 @@ scaled_joint_trajectory_controller:
 
 joint_trajectory_controller:
   ros__parameters:
+    allow_nonzero_velocity_at_trajectory_end: true
     command_interfaces:
       - position
     state_interfaces:

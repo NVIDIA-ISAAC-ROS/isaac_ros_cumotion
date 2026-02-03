@@ -1,17 +1,55 @@
 <?xml version="1.0"?>
-<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="$(arg ur_type)">
-    <xacro:arg name="ur_type" default="ur"/>
-    <xacro:arg name="use_fake_hardware" default="true" />
-    <xacro:arg name="name" default="ur10e" />
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="ur">
+   <!-- robot name parameter -->
+   <xacro:arg name="name" default="ur"/>
+   <xacro:arg name="initial_positions_file" default="$(find isaac_ros_cumotion_examples)/ur_config/initial_positions.yaml"/>
 
-    <!-- Do not add ROS2 control from default UR package, add TopicBasedROS2 Control -->
-    <xacro:arg name="generate_ros2_control_tag" default="false" />
+  <xacro:property name="initial_positions_file" value="$(arg initial_positions_file)"/>
+   <!-- import main macro -->
+   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
+   
+   <!-- import ros2_control description -->
+   <xacro:include filename="ur.ros2_control.xacro" />
 
-    <!-- Import UR URDF file -->
-    <xacro:include filename="$(find isaac_ros_cumotion_examples)/ur_config/ur_sim.urdf.xacro" />
+   <!-- possible 'ur_type' values: ur3, ur3e, ur5, ur5e, ur10, ur10e, ur16e, ur20, ur30 -->
+   <!-- the default value should raise an error in case this was called without defining the type -->
+   <xacro:arg name="ur_type" default="ur5x"/>
 
-    <!-- Import UR ros2_control description -->
-    <xacro:include filename="ur.ros2_control.xacro" />
+   <!-- parameters -->
+   <xacro:arg name="tf_prefix" default="" />
+   <xacro:arg name="joint_limit_params" default="$(find ur_description)/config/$(arg ur_type)/joint_limits.yaml"/>
+   <xacro:arg name="kinematics_params" default="$(find ur_description)/config/$(arg ur_type)/default_kinematics.yaml"/>
+   <xacro:arg name="physical_params" default="$(find ur_description)/config/$(arg ur_type)/physical_parameters.yaml"/>
+   <xacro:arg name="visual_params" default="$(find ur_description)/config/$(arg ur_type)/visual_parameters.yaml"/>
+   <xacro:arg name="transmission_hw_interface" default=""/>
+   <xacro:arg name="safety_limits" default="false"/>
+   <xacro:arg name="safety_pos_margin" default="0.15"/>
+   <xacro:arg name="safety_k_position" default="20"/>
+   <xacro:arg name="force_abs_paths" default="false"/>
 
-    <xacro:ur_ros2_control name="URFakeSystem" tf_prefix="" />
+   <!-- create link fixed to the "world" -->
+   <link name="world" />
+
+   <!-- arm -->
+   <xacro:ur_robot
+     name="$(arg name)"
+     tf_prefix="$(arg tf_prefix)"
+     parent="world"
+     joint_limits_parameters_file="$(arg joint_limit_params)"
+     kinematics_parameters_file="$(arg kinematics_params)"
+     physical_parameters_file="$(arg physical_params)"
+     visual_parameters_file="$(arg visual_params)"
+     safety_limits="$(arg safety_limits)"
+     safety_pos_margin="$(arg safety_pos_margin)"
+     safety_k_position="$(arg safety_k_position)"
+     force_abs_paths="$(arg force_abs_paths)"
+     >
+     <origin xyz="0 0 0" rpy="0 0 0" />          <!-- position robot in the world -->
+   </xacro:ur_robot>
+
+  <!-- ros2_control -->
+  <xacro:ur_ros2_control
+    name="UR_IsaacSim"
+    tf_prefix="$(arg tf_prefix)"
+    initial_positions="${xacro.load_yaml(initial_positions_file)}"/>
 </robot>

@@ -1,0 +1,8 @@
+# This file is used by Isaac sim URDF so that it sets the initial position of the robot
+# with a reasonable starting position in sim
+shoulder_pan_joint: 2.6342
+shoulder_lift_joint: -0.8739
+elbow_joint: 1.5565
+wrist_1_joint: -2.2907
+wrist_2_joint: -1.5605
+wrist_3_joint: -2.0382

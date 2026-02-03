@@ -37,6 +37,10 @@ setup(
             os.path.join('share', package_name, 'params'),
             glob(os.path.join('params', '*.[yma]*')),
         ),
+        (
+            os.path.join('share', package_name, 'test'),
+            glob(os.path.join('test', '*')),
+        )
     ],
     install_requires=['setuptools'],
     zip_safe=True,

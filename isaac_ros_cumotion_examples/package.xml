@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>isaac_ros_cumotion_examples</name>
-  <version>4.0.0</version>
+  <version>4.1.0</version>
   <description>Examples demonstrating Isaac ROS cuMotion with MoveIt</description>
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
   <license>Apache-2.0</license>
@@ -11,8 +11,12 @@
 
   <exec_depend>isaac_ros_cumotion_moveit</exec_depend>
   <exec_depend>moveit2_tutorials</exec_depend>
+  <exec_depend>moveit_resources_panda_description</exec_depend>
+  <exec_depend>moveit_resources_panda_moveit_config</exec_depend>
   <exec_depend>ros2launch</exec_depend>
+  <exec_depend>rviz2</exec_depend>
   <exec_depend>ur_moveit_config</exec_depend>
+  <exec_depend>ur_robot_driver</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
