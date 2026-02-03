@@ -2,16 +2,19 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>isaac_ros_cumotion</name>
-  <version>4.0.0</version>
+  <version>4.1.0</version>
   <description>Package adds a cuMotion planner node</description>
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
   <license>NVIDIA Isaac ROS Software License</license>
   <url type="website">https://developer.nvidia.com/isaac-ros-gems/</url>
   <author>Balakumar Sundaralingam</author>
 
+  <depend>cv_bridge</depend>
+  <depend>isaac_ros_nitros_bridge_ros2</depend>
   <depend>message_filters</depend>
   <depend>moveit_msgs</depend>
   <depend>nvblox_msgs</depend>
+  <depend>python3-opencv</depend>
   <depend>shape_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
@@ -25,8 +28,13 @@
   <exec_depend>isaac_ros_cumotion_interfaces</exec_depend>
   <exec_depend>isaac_ros_cumotion_python_utils</exec_depend>
   <exec_depend>isaac_ros_cumotion_robot_description</exec_depend>
+  <exec_depend>isaac_ros_launch_utils</exec_depend>
   <exec_depend>isaac_ros_pynitros</exec_depend>
   <exec_depend>ros2launch</exec_depend>
+  <exec_depend>python3-torch-pip-shim</exec_depend>
+  <exec_depend>python3-warp-lang-pip-shim</exec_depend>
+  <exec_depend>python3-trimesh-pip-shim</exec_depend>
+  <exec_depend>python3-yourdfpy-pip-shim</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

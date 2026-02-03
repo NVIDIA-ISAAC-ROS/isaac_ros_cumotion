@@ -41,7 +41,7 @@ def augment_moveit_config(moveit_config):
 
 def generate_launch_description():
     franka_demo_launch_file = path.join(
-        get_package_share_directory('moveit2_tutorials'),
+        get_package_share_directory('moveit_resources_panda_moveit_config'),
         'launch',
         'demo.launch.py'
     )
@@ -60,8 +60,8 @@ def generate_launch_description():
     # Here we avoid adding the file to the moveit_resources_panda package by loading the file
     # manually and augmenting the MoveItConfigs object after it's built.
     lf = lf.replace(
-        'run_move_group_node =',
-        'augment_moveit_config(moveit_config)\n    run_move_group_node ='
+        'move_group_node =',
+        'augment_moveit_config(moveit_config)\n    move_group_node ='
     )
 
     # Execute modified launch file.

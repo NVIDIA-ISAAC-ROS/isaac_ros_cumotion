@@ -59,7 +59,8 @@ from typing import List
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler, TimerAction
+from launch.event_handlers import OnProcessStart
 from launch.launch_context import LaunchContext
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -102,8 +103,6 @@ def get_robot_description_contents(
         mappings={
             'ur_type': ur_type,
             'name': f'{ur_type}_robot',
-            'use_fake_hardware': 'true',
-            'generate_ros2_control_tag': 'false',
         },
     )
     robot_description = xacro_processed.toxml()
@@ -144,8 +143,9 @@ def launch_setup(context: LaunchContext, *args, **kwargs) -> List[Node]:
             file_path='srdf/ur.srdf.xacro', mappings={'name': 'ur'}
         )
         .robot_description_kinematics(file_path='config/kinematics.yaml')
-        .trajectory_execution(file_path='config/controllers.yaml')
+        .trajectory_execution(file_path='config/moveit_controllers.yaml')
         .planning_pipelines(pipelines=['ompl'])
+        .joint_limits(file_path='config/joint_limits.yaml')
         .to_moveit_configs()
     )
 
@@ -162,45 +162,10 @@ def launch_setup(context: LaunchContext, *args, **kwargs) -> List[Node]:
     )
     moveit_config.planning_pipelines['isaac_ros_cumotion'] = cumotion_config
     moveit_config.planning_pipelines['default_planning_pipeline'] = 'isaac_ros_cumotion'
-
-    # The workarounds below are based on the following ur_moveit_config and ur_description versions
-    # ur_moveit_config: github.com/UniversalRobots/Universal_Robots_ROS2_Driver/tree/2.2.14
-    # ur_description: github.com/UniversalRobots/Universal_Robots_ROS2_Description/tree/2.1.5
-
-    moveit_config.trajectory_execution = {
-        'moveit_simple_controller_manager': moveit_config.trajectory_execution
-    }
-    del moveit_config.trajectory_execution['moveit_simple_controller_manager'][
-        'moveit_manage_controllers'
-    ]
-    moveit_config.trajectory_execution['moveit_manage_controllers'] = True
-    moveit_config.trajectory_execution['trajectory_execution'] = {
-        'allowed_start_tolerance': 0.01
-    }
-    moveit_config.trajectory_execution['moveit_controller_manager'] = (
-        'moveit_simple_controller_manager/MoveItSimpleControllerManager'
-    )
-
-    moveit_config.robot_description_kinematics['robot_description_kinematics'][
-        'ur_manipulator'] = moveit_config.robot_description_kinematics[
-            'robot_description_kinematics']['/**'][
-                'ros__parameters']['robot_description_kinematics']['ur_manipulator']
-    del moveit_config.robot_description_kinematics['robot_description_kinematics']['/**']
-
-    moveit_config.joint_limits['robot_description_planning'] = xacro.load_yaml(
-        os.path.join(
-            get_package_share_directory(
-                'ur_description'), 'config', ur_type, 'joint_limits.yaml',
-        )
-    )
     moveit_config.moveit_cpp.update({'use_sim_time': True})
 
-    # Add limits from ur_moveit_config joint_limits.yaml to limits from ur_description
-    for joint in moveit_config.joint_limits['robot_description_planning']['joint_limits']:
-        moveit_config.joint_limits['robot_description_planning']['joint_limits'][joint][
-            'has_acceleration_limits'] = True
-        moveit_config.joint_limits['robot_description_planning']['joint_limits'][joint][
-            'max_acceleration'] = 5.0
+    # Increase start tolerance to 0.1
+    moveit_config.trajectory_execution['trajectory_execution']['allowed_start_tolerance'] = 0.1
 
     # Start the actual move_group node/action server
     move_group_node = Node(
@@ -210,6 +175,8 @@ def launch_setup(context: LaunchContext, *args, **kwargs) -> List[Node]:
         parameters=[moveit_config.to_dict()],
         arguments=['--ros-args', '--log-level', 'info'],
     )
+    # Delay move_group start so it seeds its current state from Isaac Sim joints
+    move_group_start = TimerAction(period=3.0, actions=[move_group_node])
 
     # RViz
     rviz_config_file = os.path.join(
@@ -273,21 +240,22 @@ def launch_setup(context: LaunchContext, *args, **kwargs) -> List[Node]:
     scaled_joint_trajectory_controller_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['scaled_joint_trajectory_controller',
-                   '-c', '/controller_manager'],
+        arguments=[
+            'scaled_joint_trajectory_controller',
+            '-c', '/controller_manager',
+        ],
     )
 
-    joint_trajectory_controller_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=['joint_trajectory_controller', '-c', '/controller_manager'],
-    )
     urdf_path = '/tmp/collated_ur_urdf.urdf'
     # Define robot state publisher
     robot_description = get_robot_description_contents(
         ur_type=ur_type,
         dump_to_file=True,
         output_file=urdf_path,
+    )
+    xrdf_path = os.path.join(
+        get_package_share_directory('isaac_ros_cumotion_robot_description'),
+        'xrdf', 'ur10e.xrdf',
     )
 
     robot_state_publisher = Node(
@@ -308,23 +276,57 @@ def launch_setup(context: LaunchContext, *args, **kwargs) -> List[Node]:
         executable='cumotion_planner_node',
         parameters=[
             {
-                'robot': 'ur10e.xrdf',
+                'robot': xrdf_path,
                 'urdf_path': urdf_path
             }
         ],
         output='screen',
+    )
+    static_planning_scene_server = Node(
+        package='isaac_ros_cumotion',
+        executable='static_planning_scene',
+        name='static_planning_scene_server',
+        output='screen',
+        emulate_tty=True,
+    )
+
+    # Delay controller spawning to allow Isaac Sim to start publishing joint states
+    # The TopicBasedSystem hardware interface needs at least one message on /isaac_joint_states
+    # before it can activate controllers
+    delay_joint_state_broadcaster = RegisterEventHandler(
+        event_handler=OnProcessStart(
+            target_action=ros2_control_node,
+            on_start=[
+                TimerAction(
+                    period=3.0,
+                    actions=[joint_state_broadcaster_spawner],
+                )
+            ],
+        )
+    )
+
+    delay_controller_spawner = RegisterEventHandler(
+        event_handler=OnProcessStart(
+            target_action=ros2_control_node,
+            on_start=[
+                TimerAction(
+                    period=5.0,
+                    actions=[scaled_joint_trajectory_controller_spawner],
+                )
+            ],
+        )
     )
 
     return [
         rviz_node,
         robot_state_publisher,
         world2robot_tf_node,
-        move_group_node,
+        move_group_start,
         ros2_control_node,
-        joint_state_broadcaster_spawner,
-        scaled_joint_trajectory_controller_spawner,
-        joint_trajectory_controller_spawner,
-        cumotion_planner_node
+        delay_joint_state_broadcaster,
+        delay_controller_spawner,
+        cumotion_planner_node,
+        static_planning_scene_server
     ]
 
 
