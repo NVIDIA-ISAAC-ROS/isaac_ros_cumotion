@@ -804,8 +804,14 @@ class CumotionActionServer(Node):
             else:
                 start_state = current_joint_state
 
+        # Parse goal constraints and determine planning approach
+        goal_pose = None
+        goal_state = None
+        use_joint_space_planning = False
+
         if len(plan_req.goal_constraints[0].joint_constraints) > 0:
-            self.get_logger().info('Calculating goal pose from Joint target')
+            # Joint space goal: use plan_single_js for direct joint space planning
+            self.get_logger().info('Planning to Joint target using joint space planning')
             goal_config = [
                 plan_req.goal_constraints[0].joint_constraints[x].position
                 for x in range(len(plan_req.goal_constraints[0].joint_constraints))
@@ -815,17 +821,31 @@ class CumotionActionServer(Node):
                 for x in range(len(plan_req.goal_constraints[0].joint_constraints))
             ]
 
-            goal_state = self.motion_gen.get_active_js(
-                CuJointState.from_position(
-                    position=self.tensor_args.to_device(goal_config).view(1, -1),
-                    joint_names=goal_jnames,
+            try:
+                goal_state = self.motion_gen.get_active_js(
+                    CuJointState.from_position(
+                        position=self.tensor_args.to_device(goal_config).view(1, -1),
+                        joint_names=goal_jnames,
+                    )
                 )
-            )
-            goal_pose = self.motion_gen.compute_kinematics(goal_state).ee_pose.clone()
+                use_joint_space_planning = True
+                self.get_logger().info(f'Joint space goal set for joints: {goal_jnames}')
+            except Exception as e:
+                self.get_logger().error(f'Failed to create joint space goal state: {e}')
+                self.get_logger().info('Falling back to pose-based planning')
+                # Fallback: convert joint goal to pose for pose-based planning
+                goal_state = self.motion_gen.get_active_js(
+                    CuJointState.from_position(
+                        position=self.tensor_args.to_device(goal_config).view(1, -1),
+                        joint_names=goal_jnames,
+                    )
+                )
+                goal_pose = self.motion_gen.compute_kinematics(goal_state).ee_pose.clone()
         elif (
             len(plan_req.goal_constraints[0].position_constraints) > 0
             and len(plan_req.goal_constraints[0].orientation_constraints) > 0
         ):
+            # Pose goal: use plan_single for Cartesian pose planning
             self.get_logger().info('Using goal from Pose')
 
             position = (
@@ -869,16 +889,29 @@ class CumotionActionServer(Node):
                 return result
         else:
             self.get_logger().error('Goal constraints not supported')
+        
         with self.lock:
             self.planner_busy = True
 
         self.motion_gen.reset(reset_seed=False)
-        motion_gen_result = self.motion_gen.plan_single(
-            start_state,
-            goal_pose,
-            MotionGenPlanConfig(max_attempts=self.__max_attempts, enable_graph_attempt=1,
-                                time_dilation_factor=time_dilation_factor),
-        )
+        
+        # Execute planning using the appropriate method based on goal type
+        if use_joint_space_planning:
+            self.get_logger().info('Calling motion_gen.plan_single_js for joint space planning')
+            motion_gen_result = self.motion_gen.plan_single_js(
+                start_state,
+                goal_state,
+                MotionGenPlanConfig(max_attempts=self.__max_attempts, enable_graph_attempt=1,
+                                    time_dilation_factor=time_dilation_factor),
+            )
+        else:
+            self.get_logger().info('Calling motion_gen.plan_single for pose planning')
+            motion_gen_result = self.motion_gen.plan_single(
+                start_state,
+                goal_pose,
+                MotionGenPlanConfig(max_attempts=self.__max_attempts, enable_graph_attempt=1,
+                                    time_dilation_factor=time_dilation_factor),
+            )
         with self.lock:
             self.planner_busy = False
         result = MoveGroup.Result()
