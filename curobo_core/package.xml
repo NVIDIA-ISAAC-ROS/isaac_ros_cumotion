@@ -2,13 +2,15 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>curobo_core</name>
-  <version>4.1.0</version>
+  <version>4.2.0</version>
   <description>This package wraps the cuRobo library as a ROS 2 package. cuRobo serves as the current backend for cuMotion.</description>
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
   <license>NVIDIA Isaac ROS Software License</license>
   <build_depend>isaac_ros_common</build_depend>
   <build_depend>ninja-build</build_depend>
 
+  <depend>python3-cupy-cuda13x-pip-shim</depend>
+  <depend>python3-hdbscan-pip-shim</depend>
   <depend>python3-torch-pip-shim</depend>
   <depend>python3-setuptools-scm-pip-shim</depend>
   <depend>python3-warp-lang-pip-shim</depend>

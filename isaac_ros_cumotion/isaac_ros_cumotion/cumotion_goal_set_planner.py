@@ -1,4 +1,4 @@
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # NVIDIA CORPORATION, its affiliates and licensors retain all intellectual
 # property and proprietary rights in and to this material, related
@@ -107,11 +107,12 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
             self.get_logger().warn('Cannot set time_dilation_factor = 0.0')
         self.get_logger().info('Planning with time_dilation_factor: ' + str(time_dilation_factor))
 
-        goal_handle.succeed()
         self.motion_gen.reset(reset_seed=False)
 
         result = MotionPlan.Result()
         result.success = False
+        # Explicitly initialize error_code to ensure it's a proper MoveItErrorCodes message
+        result.error_code = MoveItErrorCodes()
         if goal_handle.request.use_planning_scene:
             self.get_logger().info('Updating planning scene')
             scene = goal_handle.request.world
@@ -145,6 +146,7 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
             if not world_update_status:
                 result.error_code.val = MoveItErrorCodes.COLLISION_CHECKING_UNAVAILABLE
                 self.get_logger().error('World update failed.')
+                goal_handle.abort()
                 return result
 
         start_state = None
@@ -155,6 +157,8 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                     'joint_state was not received from '
                     + self._CumotionActionServer__joint_states_topic
                 )
+                result.error_code.val = MoveItErrorCodes.INVALID_ROBOT_STATE
+                goal_handle.abort()
                 return result
             # read joint state:
             state = CuJointState.from_position(
@@ -179,6 +183,8 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
             )
         else:
             self.get_logger().error('joint state in start state was empty')
+            result.error_code.val = MoveItErrorCodes.INVALID_ROBOT_STATE
+            goal_handle.abort()
             return result
 
         if plan_req.plan_grasp:
@@ -187,6 +193,7 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
             self.get_logger().info(f'Success, Error Code): {success}, {error_code}!')
             if not success:
                 result.error_code.val = error_code
+                goal_handle.abort()
                 return result
             grasp_vec_weight = None
             if len(plan_req.grasp_partial_pose_vec_weight) == 6:
@@ -218,6 +225,8 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                 retract_constraint_in_goal_frame=retract_constraint_in_goal_frame,
             )
             if grasp_plan_result.success.item():
+                # Explicitly create a new MoveItErrorCodes message
+                result.error_code = MoveItErrorCodes(val=MoveItErrorCodes.SUCCESS)
                 traj = self.get_joint_trajectory(
                     grasp_plan_result.grasp_trajectory, grasp_plan_result.grasp_trajectory_dt,
                 )
@@ -233,12 +242,26 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                 result.goal_index = grasp_plan_result.goalset_index.item()
             else:
                 result.success = False
-                result.message = grasp_plan_result.status
+                result.message = str(grasp_plan_result.status)
+                # Set appropriate error code based on failure reason
+                if grasp_plan_result.status == MotionGenStatus.IK_FAIL:
+                    result.error_code.val = MoveItErrorCodes.NO_IK_SOLUTION
+                elif grasp_plan_result.status in [
+                    MotionGenStatus.INVALID_START_STATE_WORLD_COLLISION,
+                    MotionGenStatus.INVALID_START_STATE_SELF_COLLISION,
+                ]:
+                    result.error_code.val = MoveItErrorCodes.START_STATE_IN_COLLISION
+                elif grasp_plan_result.status == MotionGenStatus.INVALID_START_STATE_JOINT_LIMITS:
+                    result.error_code.val = MoveItErrorCodes.START_STATE_INVALID
+                else:
+                    result.error_code.val = MoveItErrorCodes.PLANNING_FAILED
         else:
             if plan_req.plan_cspace:
                 self.get_logger().info('Planning CSpace target')
                 if len(plan_req.goal_state.position) <= 0:
                     self.get_logger().error('goal state is empty')
+                    result.error_code.val = MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS
+                    goal_handle.abort()
                     return result
                 goal_state = self.motion_gen.get_active_js(
                     CuJointState.from_position(
@@ -265,6 +288,8 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                 if plan_req.hold_partial_pose:
                     if len(plan_req.grasp_partial_pose_vec_weight) < 6:
                         self.get_logger().error('Partial pose vec weight should be of length 6')
+                        result.error_code.val = MoveItErrorCodes.INVALID_GOAL_CONSTRAINTS
+                        goal_handle.abort()
                         return result
 
                     grasp_vec_weight = [plan_req.grasp_partial_pose_vec_weight[i]
@@ -278,6 +303,7 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                 success, error_code, poses = self.get_goal_poses(plan_req)
                 if not success:
                     result.error_code.val = error_code
+                    goal_handle.abort()
                     return result
 
                 self.toggle_link_collision(plan_req.disable_collision_links, False)
