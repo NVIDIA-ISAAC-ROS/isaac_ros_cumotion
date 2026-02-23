@@ -785,11 +785,16 @@ class CumotionActionServer(Node):
                 return result
 
             # read joint state:
+            position_tensor = self.tensor_args.to_device(self.__js_buffer['position']).unsqueeze(0)
             state = CuJointState.from_position(
-                position=self.tensor_args.to_device(self.__js_buffer['position']).unsqueeze(0),
+                position=position_tensor,
                 joint_names=self.__js_buffer['joint_names'],
             )
-            state.velocity = self.tensor_args.to_device(self.__js_buffer['velocity']).unsqueeze(0)
+            velocity_array = self.__js_buffer['velocity']
+            if len(velocity_array) == 0:
+                state.velocity = torch.zeros_like(position_tensor, device=position_tensor.device)
+            else:
+                state.velocity = self.tensor_args.to_device(velocity_array).unsqueeze(0)
             if state.velocity.shape != state.position.shape:
                 self.get_logger().error(
                     'start joint position shape is  ' + str(state.position.shape) +
@@ -872,13 +877,33 @@ class CumotionActionServer(Node):
         with self.lock:
             self.planner_busy = True
 
-        self.motion_gen.reset(reset_seed=False)
-        motion_gen_result = self.motion_gen.plan_single(
-            start_state,
-            goal_pose,
-            MotionGenPlanConfig(max_attempts=self.__max_attempts, enable_graph_attempt=1,
-                                time_dilation_factor=time_dilation_factor),
-        )
+        # Joint-to-Joint Planning (for Joint goals)
+        if len(plan_req.goal_constraints[0].joint_constraints) > 0:
+            self.get_logger().info('Planning in Joint Space')
+            motion_gen_result = self.motion_gen.plan_single_js(
+                start_state,
+                goal_state,
+                MotionGenPlanConfig(
+                    enable_graph=False,
+                    enable_opt=True,
+                    max_attempts=self.__max_attempts,
+                    enable_graph_attempt=1,
+                    time_dilation_factor=time_dilation_factor
+                )
+            )
+        else:
+            # Cartesian Planning (for Pose goals)
+            self.get_logger().info('Planning in Cartesian Space')
+            motion_gen_result = self.motion_gen.plan_single(
+                start_state,
+                goal_pose,
+                MotionGenPlanConfig(
+                    max_attempts=self.__max_attempts,
+                    enable_graph_attempt=1,
+                    time_dilation_factor=time_dilation_factor
+                )
+            )
+
         with self.lock:
             self.planner_busy = False
         result = MoveGroup.Result()
