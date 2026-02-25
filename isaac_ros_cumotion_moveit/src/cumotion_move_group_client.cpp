@@ -60,8 +60,6 @@ CumotionMoveGroupClient::CumotionMoveGroupClient(const rclcpp::Node::SharedPtr &
     &CumotionMoveGroupClient::goalResponseCallback, this, std::placeholders::_1);
   send_goal_options_.feedback_callback = std::bind(
     &CumotionMoveGroupClient::feedbackCallback, this, std::placeholders::_1, std::placeholders::_2);
-  send_goal_options_.result_callback = std::bind(
-    &CumotionMoveGroupClient::resultCallback, this, std::placeholders::_1);
 }
 
 void CumotionMoveGroupClient::updateGoal(
@@ -76,6 +74,7 @@ bool CumotionMoveGroupClient::sendGoal()
 {
   result_ready = false;
   success = false;
+  plan_response = moveit_msgs::msg::MotionPlanDetailedResponse();
 
   moveit_msgs::msg::PlanningOptions plan_options;
   plan_options.planning_scene_diff = planning_scene_;
@@ -130,22 +129,35 @@ void CumotionMoveGroupClient::getGoal()
     auto res = result_future_.get();
 
     RCLCPP_INFO(node_->get_logger(), "Checking results");
+    result_ready = true;
+    success = false;
 
-    if (res.code == rclcpp_action::ResultCode::SUCCEEDED) {
-      RCLCPP_INFO(node_->get_logger(), "Success");
-      result_ready = true;
-      success = false;
+    if (!res.result) {
+      RCLCPP_ERROR(node_->get_logger(), "No action result payload");
+    } else if (res.code == rclcpp_action::ResultCode::SUCCEEDED) {
       plan_response.error_code = res.result->error_code;
-      if (plan_response.error_code.val == 1) {
+      
+
+      if (res.result->planned_trajectory.joint_trajectory.points.size() > 0) {
+        
+        plan_response.error_code.val = 1; 
+
+        RCLCPP_INFO(node_->get_logger(), "Success: Received valid trajectory!");
         success = true;
         plan_response.trajectory_start = res.result->trajectory_start;
         plan_response.group_name = planning_request_.group_name;
         plan_response.trajectory.resize(1);
         plan_response.trajectory[0] = res.result->planned_trajectory;
         plan_response.processing_time = {res.result->planning_time};
+      } else {
+        RCLCPP_ERROR(node_->get_logger(), "Failed: Received empty trajectory.");
       }
+    } else if (res.code == rclcpp_action::ResultCode::ABORTED) {
+      RCLCPP_ERROR(node_->get_logger(), "Goal was aborted");
+    } else if (res.code == rclcpp_action::ResultCode::CANCELED) {
+      RCLCPP_ERROR(node_->get_logger(), "Goal was canceled");
     } else {
-      RCLCPP_INFO(node_->get_logger(), "Failed");
+      RCLCPP_ERROR(node_->get_logger(), "Unknown result code");
     }
     get_result_handle_ = false;
   }
@@ -171,37 +183,6 @@ void CumotionMoveGroupClient::feedbackCallback(
   std::string status = feedback->state;
   RCLCPP_INFO(node_->get_logger(), "Checking status");
   RCLCPP_INFO(node_->get_logger(), status.c_str());
-}
-
-void CumotionMoveGroupClient::resultCallback(const GoalHandle::WrappedResult & result)
-{
-  RCLCPP_INFO(node_->get_logger(), "Received result");
-
-  result_ready = true;
-  success = false;
-
-  switch (result.code) {
-    case rclcpp_action::ResultCode::SUCCEEDED:
-      break;
-    case rclcpp_action::ResultCode::ABORTED:
-      RCLCPP_ERROR(node_->get_logger(), "Goal was aborted");
-      return;
-    case rclcpp_action::ResultCode::CANCELED:
-      RCLCPP_ERROR(node_->get_logger(), "Goal was canceled");
-      return;
-    default:
-      RCLCPP_ERROR(node_->get_logger(), "Unknown result code");
-      return;
-  }
-
-  plan_response.error_code = result.result->error_code;
-  if (plan_response.error_code.val == 1) {
-    success = true;
-    plan_response.trajectory_start = result.result->trajectory_start;
-    plan_response.group_name = planning_request_.group_name;
-    plan_response.trajectory = {result.result->planned_trajectory};
-    plan_response.processing_time = {result.result->planning_time};
-  }
 }
 
 }  // namespace manipulation

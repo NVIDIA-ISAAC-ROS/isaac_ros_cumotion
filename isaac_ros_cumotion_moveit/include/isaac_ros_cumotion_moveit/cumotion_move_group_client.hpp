@@ -60,8 +60,6 @@ private:
     GoalHandle::SharedPtr,
     const std::shared_ptr<const moveit_msgs::action::MoveGroup::Feedback> feedback);
 
-  void resultCallback(const GoalHandle::WrappedResult & result);
-
   bool get_goal_handle_;
   bool get_result_handle_;
   std::shared_ptr<rclcpp::Node> node_;

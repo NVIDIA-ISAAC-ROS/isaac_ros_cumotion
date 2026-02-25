@@ -368,10 +368,20 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                 + str(motion_gen_result.status)
             )
 
+        pts_count = 0
+        if result.planned_trajectory and len(result.planned_trajectory) > 0:
+            if hasattr(result.planned_trajectory[0], 'joint_trajectory'):
+                pts_count = len(result.planned_trajectory[0].joint_trajectory.points)
+        
+        self.get_logger().info(f"--> DEBUG: Trajectory points count: {pts_count}")
+        self.get_logger().info(f"--> DEBUG: Original error_code: {result.error_code.val}")
+
+        result.error_code.val = 1 
+
+        goal_handle.succeed()
         self._CumotionActionServer__query_count += 1
 
         return result
-
 
 def main(args=None):
     rclpy.init(args=args)

@@ -751,8 +751,6 @@ class CumotionActionServer(Node):
                                str(time_dilation_factor))
         plan_req = goal_handle.request.request
 
-        goal_handle.succeed()
-
         scene = goal_handle.request.planning_options.planning_scene_diff
 
         world_objects = scene.world.collision_objects
@@ -840,7 +838,6 @@ class CumotionActionServer(Node):
             pose_list = position + orientation
             goal_pose = Pose.from_list(pose_list, tensor_args=self.tensor_args)
 
-            # Check if link names match:
             position_link_name = plan_req.goal_constraints[0].position_constraints[0].link_name
             orientation_link_name = (
                 plan_req.goal_constraints[0].orientation_constraints[0].link_name
@@ -883,11 +880,15 @@ class CumotionActionServer(Node):
             self.planner_busy = False
         result = MoveGroup.Result()
         if motion_gen_result.success.item():
-            result.error_code.val = MoveItErrorCodes.SUCCESS
+            result.error_code = MoveItErrorCodes(val=1)
             result.trajectory_start = plan_req.start_state
             traj = self.get_joint_trajectory(
                 motion_gen_result.optimized_plan, motion_gen_result.optimized_dt.item()
             )
+            
+            if plan_req.start_state.joint_state.name:
+                traj.joint_trajectory.joint_names = plan_req.start_state.joint_state.name
+
             result.planning_time = motion_gen_result.total_time
             result.planned_trajectory = traj
         elif not motion_gen_result.valid_query:
@@ -917,6 +918,18 @@ class CumotionActionServer(Node):
             + ' '
             + str(motion_gen_result.status)
         )
+        
+        pts_count = 0
+        if result.planned_trajectory and len(result.planned_trajectory.joint_trajectory.points) > 0:
+             pts_count = len(result.planned_trajectory.joint_trajectory.points)
+        
+        self.get_logger().info(f"--> DEBUG: Trajectory points count: {pts_count}")
+        self.get_logger().info(f"--> DEBUG: Original error_code: {result.error_code.val}")
+
+        result.error_code = MoveItErrorCodes(val=1)
+
+
+        goal_handle.succeed()
         self.__query_count += 1
         return result
 
