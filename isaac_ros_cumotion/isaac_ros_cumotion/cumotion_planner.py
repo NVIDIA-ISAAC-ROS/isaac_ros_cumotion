@@ -75,6 +75,7 @@ class CumotionActionServer(Node):
         self.declare_parameter('num_graph_seeds', 6)
         self.declare_parameter('num_trajopt_seeds', 6)
         self.declare_parameter('include_trajopt_retract_seed', True)
+        self.declare_parameter('enable_trajectory_optimization', True)
         self.declare_parameter('num_trajopt_time_steps', 32)
         self.declare_parameter('trajopt_finetune_iters', 400)
         self.declare_parameter('interpolation_dt', 0.025)
@@ -185,6 +186,10 @@ class CumotionActionServer(Node):
         else:
             self.__num_trajopt_noisy_seeds = 2
             self.__trajopt_seed_ratio = {'linear': 0.5, 'bias': 0.5}
+
+        self.__enable_trajectory_optimization = (
+            self.get_parameter('enable_trajectory_optimization').get_parameter_value().bool_value
+        )
 
         collision_cache_cuboid = (
             self.get_parameter('collision_cache_cuboid').get_parameter_value().integer_value
@@ -876,8 +881,12 @@ class CumotionActionServer(Node):
         motion_gen_result = self.motion_gen.plan_single(
             start_state,
             goal_pose,
-            MotionGenPlanConfig(max_attempts=self.__max_attempts, enable_graph_attempt=1,
-                                time_dilation_factor=time_dilation_factor),
+            MotionGenPlanConfig(
+                max_attempts=self.__max_attempts,
+                enable_graph_attempt=1,
+                enable_opt=self.__enable_trajectory_optimization,
+                time_dilation_factor=time_dilation_factor,
+            ),
         )
         with self.lock:
             self.planner_busy = False
