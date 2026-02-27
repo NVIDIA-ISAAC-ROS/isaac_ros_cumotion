@@ -64,6 +64,7 @@ class MoveGroupClient:
             joint_constraint.joint_name = joint_name
             joint_constraint.position = position
             constraints.joint_constraints.append(joint_constraint)
+        return constraints
 
     def send_goal_pose(self, pose, allowed_planning_time=10.0):
         self._result = None

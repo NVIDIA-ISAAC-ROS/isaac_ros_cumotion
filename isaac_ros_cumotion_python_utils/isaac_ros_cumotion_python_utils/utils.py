@@ -97,7 +97,7 @@ def is_grid_valid(grid_size: List[float], voxel_size: float) -> bool:
     """
     num_voxels_per_dimension = np.array(grid_size) / voxel_size
     num_voxels_per_dim_is_zero = (num_voxels_per_dimension <= 0).any()
-    return num_voxels_per_dim_is_zero
+    return not num_voxels_per_dim_is_zero
 
 
 def robust_floor(x: float, threshold: float = 1e-04) -> int:

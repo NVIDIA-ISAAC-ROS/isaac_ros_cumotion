@@ -674,7 +674,7 @@ class AttachObjectServer(Node):
                 rclpy.time.Time()
             )
         except Exception as ex:
-            self.get_logger.error(f'Could not transform world to grasp_frame: {ex}')
+            self.get_logger().error(f'Could not transform world to grasp_frame: {ex}')
             return None
 
         grasp_T_object = np.eye(4)
