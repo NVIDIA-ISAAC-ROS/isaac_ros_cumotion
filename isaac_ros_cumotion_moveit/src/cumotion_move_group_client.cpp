@@ -146,6 +146,7 @@ void CumotionMoveGroupClient::getGoal()
       }
     } else {
       RCLCPP_INFO(node_->get_logger(), "Failed");
+      result_ready = true;
     }
     get_result_handle_ = false;
   }
@@ -177,30 +178,28 @@ void CumotionMoveGroupClient::resultCallback(const GoalHandle::WrappedResult & r
 {
   RCLCPP_INFO(node_->get_logger(), "Received result");
 
-  result_ready = true;
-  success = false;
-
+  // NOTE: Do NOT populate plan_response here.  getGoal() handles result
+  // extraction on the polling thread.  Writing plan_response from both
+  // this callback thread and getGoal() causes a data race / double-free
+  // on plan_response.trajectory (the JointTrajectory copy-assignment
+  // frees the old buffer while the other thread is still using it).
+  //
+  // Only log non-success codes so we surface aborted/canceled early.
   switch (result.code) {
     case rclcpp_action::ResultCode::SUCCEEDED:
       break;
     case rclcpp_action::ResultCode::ABORTED:
       RCLCPP_ERROR(node_->get_logger(), "Goal was aborted");
+      result_ready = true;
       return;
     case rclcpp_action::ResultCode::CANCELED:
       RCLCPP_ERROR(node_->get_logger(), "Goal was canceled");
+      result_ready = true;
       return;
     default:
       RCLCPP_ERROR(node_->get_logger(), "Unknown result code");
+      result_ready = true;
       return;
-  }
-
-  plan_response.error_code = result.result->error_code;
-  if (plan_response.error_code.val == 1) {
-    success = true;
-    plan_response.trajectory_start = result.result->trajectory_start;
-    plan_response.group_name = planning_request_.group_name;
-    plan_response.trajectory = {result.result->planned_trajectory};
-    plan_response.processing_time = {result.result->planning_time};
   }
 }
 
