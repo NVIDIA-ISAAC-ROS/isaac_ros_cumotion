@@ -251,7 +251,7 @@ class CumotionActionServer(Node):
             self.get_logger().info(
                 'Loading grid position and dims from grid_center_m and grid_size_m parameters.')
 
-        if is_grid_valid(self.__grid_size_m, self.__voxel_size):
+        if not is_grid_valid(self.__grid_size_m, self.__voxel_size):
             self.get_logger().fatal('Number of voxels should be at least 1 in every dimension.')
             raise SystemExit
 
