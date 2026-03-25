@@ -8,6 +8,7 @@
     num_graph_seeds: 6
     num_trajopt_seeds: 6
     include_trajopt_retract_seed: True
+    enable_trajectory_optimization: True
     num_trajopt_time_steps: 32
     joint_states_topic: "/joint_states"
     interpolation_dt: 0.025

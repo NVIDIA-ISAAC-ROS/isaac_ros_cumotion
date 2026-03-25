@@ -212,6 +212,7 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                 MotionGenPlanConfig(
                     max_attempts=self._CumotionActionServer__max_attempts,
                     enable_graph_attempt=1,
+                    enable_opt=self._CumotionActionServer__enable_trajectory_optimization,
                     time_dilation_factor=time_dilation_factor,
                 ),
                 grasp_approach_offset=self.get_cu_pose_from_ros_pose(plan_req.grasp_offset_pose),
@@ -278,6 +279,7 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                     MotionGenPlanConfig(
                         max_attempts=self._CumotionActionServer__max_attempts,
                         enable_graph_attempt=1,
+                        enable_opt=self._CumotionActionServer__enable_trajectory_optimization,
                         time_dilation_factor=time_dilation_factor,
                     ),
                 )
@@ -316,6 +318,7 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                         MotionGenPlanConfig(
                             max_attempts=self._CumotionActionServer__max_attempts,
                             enable_graph_attempt=1,
+                            enable_opt=self._CumotionActionServer__enable_trajectory_optimization,
                             time_dilation_factor=time_dilation_factor,
                             pose_cost_metric=pose_cost_metric,
                         ),
@@ -327,6 +330,7 @@ class CumotionGoalSetPlannerServer(CumotionActionServer):
                         MotionGenPlanConfig(
                             max_attempts=self._CumotionActionServer__max_attempts,
                             enable_graph_attempt=1,
+                            enable_opt=self._CumotionActionServer__enable_trajectory_optimization,
                             time_dilation_factor=time_dilation_factor,
                             pose_cost_metric=pose_cost_metric,
                         ),
