@@ -32,6 +32,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 
 #include <geometry_msgs/msg/pose.hpp>
 #include <isaac_ros_common/qos.hpp>
@@ -810,8 +811,32 @@ bool CumotionPlanner::GetStartCSpacePosition(
   const moveit_msgs::msg::MotionPlanRequest & request,
   Eigen::VectorXd & start_cspace_position)
 {
-  if (!request.start_state.joint_state.position.empty()) {
-    start_cspace_position = ToEigenVector(request.start_state.joint_state.position);
+  const auto & js = request.start_state.joint_state;
+  if (!js.position.empty()) {
+    // When joint names are present, extract only the cuMotion C-space joints in XRDF order,
+    // silently dropping any joints not in C-space (e.g. mimic joints added by MoveIt).
+    if (!js.name.empty() && js.name.size() == js.position.size()) {
+      const auto & cumotion_joints = robot_manager_->GetJointNames();
+      std::unordered_map<std::string, double> name_to_pos;
+      name_to_pos.reserve(js.name.size());
+      for (size_t i = 0; i < js.name.size(); ++i) {
+        name_to_pos[js.name[i]] = js.position[i];
+      }
+      start_cspace_position.resize(static_cast<Eigen::Index>(cumotion_joints.size()));
+      for (size_t i = 0; i < cumotion_joints.size(); ++i) {
+        auto it = name_to_pos.find(cumotion_joints[i]);
+        if (it == name_to_pos.end()) {
+          RCLCPP_ERROR(
+            this->get_logger(),
+            "Start state is missing cuMotion C-space joint '%s'",
+            cumotion_joints[i].c_str());
+          return false;
+        }
+        start_cspace_position(static_cast<Eigen::Index>(i)) = it->second;
+      }
+    } else {
+      start_cspace_position = ToEigenVector(js.position);
+    }
 
     if (request.start_state.is_diff) {
       Eigen::VectorXd current;
@@ -852,9 +877,25 @@ bool CumotionPlanner::GetGoal(
   if (!constraint.joint_constraints.empty()) {
     RCLCPP_INFO(this->get_logger(), "Using joint space goal");
 
-    goal_cspace_position.resize(constraint.joint_constraints.size());
-    for (size_t i = 0; i < constraint.joint_constraints.size(); ++i) {
-      goal_cspace_position(i) = constraint.joint_constraints[i].position;
+    // Map constraint positions by name and select only the cuMotion C-space joints in XRDF order,
+    // dropping any non-C-space joints (e.g. mimic joints forwarded by MoveIt).
+    const auto & cumotion_joints = robot_manager_->GetJointNames();
+    std::unordered_map<std::string, double> name_to_pos;
+    name_to_pos.reserve(constraint.joint_constraints.size());
+    for (const auto & jc : constraint.joint_constraints) {
+      name_to_pos[jc.joint_name] = jc.position;
+    }
+    goal_cspace_position.resize(static_cast<Eigen::Index>(cumotion_joints.size()));
+    for (size_t i = 0; i < cumotion_joints.size(); ++i) {
+      auto it = name_to_pos.find(cumotion_joints[i]);
+      if (it == name_to_pos.end()) {
+        RCLCPP_ERROR(
+          this->get_logger(),
+          "Goal constraints are missing cuMotion C-space joint '%s'",
+          cumotion_joints[i].c_str());
+        return false;
+      }
+      goal_cspace_position(static_cast<Eigen::Index>(i)) = it->second;
     }
 
     has_joint_goal = true;
