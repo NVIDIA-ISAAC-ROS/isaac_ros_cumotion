@@ -21,7 +21,7 @@ SPDX-License-Identifier: Apache-2.0
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>isaac_ros_cumotion_robot_segmenter</name>
-  <version>4.5.0</version>
+  <version>4.6.0</version>
   <description>Robot segmenter</description>
 
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
@@ -34,11 +34,10 @@ SPDX-License-Identifier: Apache-2.0
 
   <depend>ament_index_cpp</depend>
   <depend>eigen</depend>
+  <depend>geometry_msgs</depend>
   <depend>isaac_ros_cumotion_interfaces</depend>
   <depend>isaac_ros_launch_utils</depend>
-  <depend>isaac_ros_managed_nitros</depend>
   <depend>isaac_ros_nitros</depend>
-  <depend>isaac_ros_nitros_camera_info_type</depend>
   <depend>isaac_ros_nitros_image_type</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>

@@ -2,7 +2,7 @@
 
 NVIDIA accelerated packages for arm motion planning and control
 
-<div align="center"><a class="reference internal image-reference" href="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/release-4.5/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_cumotion/cumotion_ur10_demo.gif/"><img alt="image" src="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/release-4.5/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_cumotion/cumotion_ur10_demo.gif/" width="600px"/></a></div>
+<div align="center"><a class="reference internal image-reference" href="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/release-4.6/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_cumotion/cumotion_ur10_demo.gif/"><img alt="image" src="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/release-4.6/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_cumotion/cumotion_ur10_demo.gif/" width="600px"/></a></div>
 
 ## Overview
 
@@ -97,4 +97,4 @@ Please visit the [Isaac ROS Documentation](https://nvidia-isaac-ros.github.io/re
 
 ## Latest
 
-Update 2026-07-06: Flipped hand order in Isaac ROS cuMotion Controllers to support Isaac Teleop updates
+Update 2026-08-18: Compatibility and integration updates for the Isaac ROS 4.6.0 release

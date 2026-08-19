@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>isaac_ros_cumotion_controllers</name>
-  <version>4.5.0</version>
+  <version>4.6.0</version>
   <description>ROS 2 control controllers using cuMotion (e.g. IK via RMPflow)</description>
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
   <license>Apache-2.0</license>
@@ -27,6 +27,10 @@
   <depend>isaac_ros_inverse_dynamics</depend>
   <depend>realtime_tools</depend>
   <depend>isaac_ros_nitros</depend>
+
+  <!-- find_package(cumotion) pulls in cuMotion's CMake config, which calls
+       find_dependency(CUDAToolkit); nvcc is required at configure/build time. -->
+  <build_depend>cuda-toolkit</build_depend>
 
   <!-- Python marker node deps -->
   <exec_depend>interactive_markers</exec_depend>

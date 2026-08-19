@@ -252,6 +252,12 @@ private:
    */
   bool UpdateEsdfFromNvblox(const EsdfClearingObjects * clearing_objects, bool update_esdf);
 
+  /**
+   * Initializes ESDF workspace bounds before planning consumes the ESDF.
+   * Returns true if bounds are already cached or were initialized successfully.
+   */
+  bool EnsureEsdfWorkspaceBoundsCached();
+
   // Publish the current cuMotion world occupancy as voxels if enabled and subscribed.
   void PublishWorldVoxels();
 

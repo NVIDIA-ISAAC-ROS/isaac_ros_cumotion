@@ -36,9 +36,12 @@ endif()
 get_filename_component(cumotion_DIR "${CUMOTION_CONFIG_FILE}" DIRECTORY)
 find_package(cumotion REQUIRED CONFIG)
 
-# Controllers library.
+# Controllers library. The inverse-dynamics solver (and its Pinocchio
+# dependency) is pulled in via the ament <depend>isaac_ros_inverse_dynamics</depend>.
 ament_auto_add_library(isaac_ros_cumotion_controllers SHARED
+  src/ik_controller_base.cpp
   src/bimanual_ik_controller.cpp
+  src/ik_controller.cpp
 )
 target_link_libraries(isaac_ros_cumotion_controllers
   cumotion::cumotion

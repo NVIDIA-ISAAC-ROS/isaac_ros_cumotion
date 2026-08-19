@@ -255,6 +255,7 @@ if(BUILD_TESTING)
   ament_target_dependencies(test_world_manager_impl
     rclcpp
     geometry_msgs
+    nvblox_msgs
   )
   set_target_properties(test_world_manager_impl PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE
@@ -262,5 +263,11 @@ if(BUILD_TESTING)
     INSTALL_RPATH_USE_LINK_PATH TRUE
   )
 endif()
+
+# Python script to verify ESDF self-consistency.
+install(
+  PROGRAMS scripts/verify_esdf_self_consistent.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 ament_auto_package(INSTALL_TO_SHARE launch params)

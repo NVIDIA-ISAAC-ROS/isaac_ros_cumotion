@@ -53,7 +53,8 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import ComposableNodeContainer, Node
+from launch_ros.descriptions import ComposableNode
 from moveit_configs_utils import MoveItConfigsBuilder
 
 import yaml
@@ -115,7 +116,7 @@ def generate_launch_description():
         arguments=['--ros-args', '--log-level', 'info'],
     )
 
-    # Add cumotion planner node
+    # Add cuMotion components.
     xrdf_path = os.path.join(
         get_package_share_directory('isaac_ros_cumotion_robot_description'),
         'xrdf', 'franka.xrdf'
@@ -124,27 +125,34 @@ def generate_launch_description():
         get_package_share_directory('moveit_resources_panda_description'),
         'urdf', 'panda.urdf'
     )
-    cumotion_planner_node = Node(
+    cumotion_planner_node = ComposableNode(
         name='cumotion_planner',
         package='isaac_ros_cumotion',
-        namespace='',
-        executable='cumotion_planner_node',
+        plugin='nvidia::isaac_ros::cumotion::CumotionPlanner',
         parameters=[
             {
-                'robot': xrdf_path,
-                'urdf_path': urdf_path
+                'xrdf_file_path': xrdf_path,
+                'urdf_file_path': urdf_path
             }
         ],
-        output='screen',
     )
 
     # Static planning scene server
-    static_planning_scene_server = Node(
+    static_planning_scene_server = ComposableNode(
         package='isaac_ros_cumotion',
-        executable='static_planning_scene',
+        plugin='nvidia::isaac_ros::cumotion::StaticPlanningSceneServer',
         name='static_planning_scene_server',
+    )
+    cumotion_container = ComposableNodeContainer(
+        name='cumotion_container',
+        namespace='',
+        package='rclcpp_components',
+        executable='component_container_mt',
+        composable_node_descriptions=[
+            static_planning_scene_server,
+            cumotion_planner_node,
+        ],
         output='screen',
-        emulate_tty=True,
     )
 
     # RViz
@@ -253,7 +261,6 @@ def generate_launch_description():
             joint_state_broadcaster_spawner,
             panda_arm_controller_spawner,
             panda_hand_controller_spawner,
-            static_planning_scene_server,
-            cumotion_planner_node
+            cumotion_container
         ]
     )

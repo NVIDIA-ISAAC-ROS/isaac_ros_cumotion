@@ -89,7 +89,6 @@ private:
   // 4x4 transformation matrix from depth to color frame
   std::optional<Eigen::Matrix4d> color_pose_depth_;
 
-
   // Performance logging flag
   bool enable_performance_logging_;
 

@@ -20,10 +20,12 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include <nvblox_msgs/srv/esdf_and_gradients.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 #include "isaac_ros_cumotion/impl/world_manager_impl.hpp"
@@ -475,6 +477,118 @@ TEST_F(WorldManagerImplEsdfClearingTest, MeshPackageUriNotSupported)
     MakeScale(1.0, 1.0, 1.0));
 
   EXPECT_FALSE(result->HasObjects());
+}
+
+// ---- ProcessEsdfResponse tests ----
+//
+// These tests cover basic WorldManagerImpl::ProcessEsdfResponse behavior.
+
+class WorldManagerImplProcessEsdfTest : public ::testing::Test
+{
+protected:
+  void SetUp() override
+  {
+    test_node_ = std::make_shared<rclcpp::Node>("test_world_manager_process_esdf");
+
+    WorldManagerImpl::Config config;
+    // ProcessEsdfResponse itself does not gate on read_esdf_world; we set the flag here for
+    // narrative clarity only.
+    config.read_esdf_world = true;
+    config.add_ground_plane = false;
+
+    world_manager_ = std::make_unique<WorldManagerImpl>(config, test_node_->get_logger());
+  }
+
+  void TearDown() override
+  {
+    world_manager_.reset();
+    test_node_.reset();
+  }
+
+  // Build a minimal valid EsdfAndGradients::Response with the given grid_shape, voxel_size, and
+  // raw float data. Layout dimension sizes match grid_shape; data must contain
+  // grid_shape.x() * grid_shape.y() * grid_shape.z() floats.
+  static nvblox_msgs::srv::EsdfAndGradients::Response MakeEsdfResponse(
+    const Eigen::Vector3i & grid_shape,
+    float voxel_size_m,
+    const std::vector<float> & data)
+  {
+    nvblox_msgs::srv::EsdfAndGradients::Response response;
+    response.success = true;
+    response.voxel_size_m = voxel_size_m;
+    response.origin_m.x = 0.0;
+    response.origin_m.y = 0.0;
+    response.origin_m.z = 0.0;
+
+    auto & arr = response.esdf_and_gradients;
+    arr.layout.dim.resize(3);
+    arr.layout.dim[0].size = grid_shape.x();
+    arr.layout.dim[1].size = grid_shape.y();
+    arr.layout.dim[2].size = grid_shape.z();
+    arr.layout.dim[0].label = "x";
+    arr.layout.dim[1].label = "y";
+    arr.layout.dim[2].label = "z";
+    arr.layout.dim[0].stride = grid_shape.x() * grid_shape.y() * grid_shape.z();
+    arr.layout.dim[1].stride = grid_shape.y() * grid_shape.z();
+    arr.layout.dim[2].stride = grid_shape.z();
+    arr.layout.data_offset = 0;
+    arr.data = data;
+    return response;
+  }
+
+  std::shared_ptr<rclcpp::Node> test_node_;
+  std::unique_ptr<WorldManagerImpl> world_manager_;
+};
+
+TEST_F(WorldManagerImplProcessEsdfTest, SelfConsistentResponseSucceedsAndCachesGrid)
+{
+  const Eigen::Vector3i grid_shape(2, 3, 4);
+  const float voxel_size_m = 0.05f;
+  // 24 finite distance values.
+  std::vector<float> data;
+  data.reserve(grid_shape.prod());
+  for (int i = 0; i < grid_shape.prod(); ++i) {
+    data.push_back(static_cast<float>(i) * 0.01f);
+  }
+  auto response = MakeEsdfResponse(grid_shape, voxel_size_m, data);
+
+  EXPECT_TRUE(world_manager_->ProcessEsdfResponse(response));
+
+  // Grid metadata is cached on first call.
+  EXPECT_EQ(world_manager_->GetGridShape(), grid_shape);
+  EXPECT_NEAR(world_manager_->GetVoxelSize(), voxel_size_m, kTolerance);
+}
+
+// A response whose Float32MultiArray is missing the required X/Y/Z dimensions must be rejected
+// rather than silently producing garbage downstream.
+TEST_F(WorldManagerImplProcessEsdfTest, MalformedLayoutIsRejected)
+{
+  nvblox_msgs::srv::EsdfAndGradients::Response response;
+  response.success = true;
+  response.voxel_size_m = 0.05f;
+  // Only 2 dims: not enough to define a 3D grid.
+  response.esdf_and_gradients.layout.dim.resize(2);
+  response.esdf_and_gradients.layout.dim[0].size = 2;
+  response.esdf_and_gradients.layout.dim[1].size = 3;
+  response.esdf_and_gradients.data = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+
+  EXPECT_FALSE(world_manager_->ProcessEsdfResponse(response));
+}
+
+// On the second call, geometry must match the first call. Mismatched shapes should be rejected
+// to avoid silently switching the SDF grid out from under the planner.
+TEST_F(WorldManagerImplProcessEsdfTest, ShapeMismatchOnSubsequentCallIsRejected)
+{
+  const Eigen::Vector3i first_shape(2, 3, 4);
+  std::vector<float> first_data(first_shape.prod(), 0.0f);
+  ASSERT_TRUE(
+    world_manager_->ProcessEsdfResponse(MakeEsdfResponse(first_shape, 0.05f, first_data)));
+
+  // Second call with a different shape should be rejected.
+  const Eigen::Vector3i second_shape(3, 3, 4);
+  std::vector<float> second_data(second_shape.prod(), 0.0f);
+  EXPECT_FALSE(
+    world_manager_->ProcessEsdfResponse(MakeEsdfResponse(second_shape, 0.05f, second_data)));
 }
 
 }  // namespace cumotion

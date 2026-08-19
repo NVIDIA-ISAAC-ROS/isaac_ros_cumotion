@@ -22,4 +22,21 @@ limitations under the License. -->
       effort commands to hardware interfaces via Pinocchio RNEA feedforward.
     </description>
   </class>
+
+  <class name="isaac_ros_cumotion_controllers/IkController"
+         type="nvidia::isaac_ros::cumotion_controllers::IkController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Single-arm IK controller using cuMotion RMPflow. Subscribes to
+      ~/reference_pose (PoseStamped) for one end-effector target, runs an
+      open-loop integrator continuously low-pass synced to hardware state,
+      and writes position, velocity, effort, kp, and kd commands per joint.
+      kp / kd are written as NaN so that a downstream isaac_ros_deploy
+      SafetyController defers to its per-joint fallback gains; the controller
+      addresses the SafetyController's _raw reference interfaces by setting
+      command_prefix=&lt;safety_controller_name&gt; and command_suffix=_raw.
+      Effort is Pinocchio RNEA feedforward torque. Reference poses with
+      non-finite components or the origin+identity sentinel are rejected.
+    </description>
+  </class>
 </library>
