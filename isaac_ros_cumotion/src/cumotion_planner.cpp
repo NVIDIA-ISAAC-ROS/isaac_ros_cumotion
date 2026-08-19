@@ -246,6 +246,28 @@ std::shared_ptr<nvblox_msgs::srv::EsdfAndGradients::Request> CumotionPlanner::Cr
   request->update_esdf = update_esdf && update_esdf_on_request_;
   request->frame_id = world_config_.robot_base_frame;
 
+  // cuMotion sends use_aabb=true once workspace bounds are cached. nvblox's
+  // `unobserved_esdf_policy: free` only takes effect for AABB-bounded requests. Sending
+  // use_aabb=false would cause nvblox to return -1000 sentinels for unobserved voxels, which
+  // cuMotion has no way to distinguish from "deep inside an obstacle".
+  if (world_manager_) {
+    const Eigen::Vector3i grid_shape = world_manager_->GetGridShape();
+    const double voxel_size_m = world_manager_->GetVoxelSize();
+    if ((grid_shape.array() > 0).all() && voxel_size_m > 0.0) {
+      const Eigen::Vector3d grid_origin_m = world_manager_->GetGridOrigin();
+      request->use_aabb = true;
+      request->aabb_min_m.x = grid_origin_m.x();
+      request->aabb_min_m.y = grid_origin_m.y();
+      request->aabb_min_m.z = grid_origin_m.z();
+      // nvblox uses inclusive voxel corners (dims = floor(max/vs) - floor(min/vs) + 1).
+      // size = shape * vs puts max on the exclusive outer face and grows the grid by 1
+      // each round-trip; (shape - 1) * vs round-trips to the same shape.
+      request->aabb_size_m.x = (grid_shape.x() - 1) * voxel_size_m;
+      request->aabb_size_m.y = (grid_shape.y() - 1) * voxel_size_m;
+      request->aabb_size_m.z = (grid_shape.z() - 1) * voxel_size_m;
+    }
+  }
+
   // Add clearing objects if provided.
   if (clearing_objects && clearing_objects->HasObjects()) {
     request->aabbs_to_clear_min_m = clearing_objects->aabbs_min;
@@ -257,7 +279,10 @@ std::shared_ptr<nvblox_msgs::srv::EsdfAndGradients::Request> CumotionPlanner::Cr
       clearing_objects->spheres_radius.end());
   }
 
-  RCLCPP_DEBUG(this->get_logger(), "Requesting ESDF from nvblox");
+  RCLCPP_DEBUG(
+    this->get_logger(),
+    "Requesting ESDF from nvblox (use_aabb=%s)",
+    request->use_aabb ? "true" : "false");
 
   return request;
 }
@@ -284,6 +309,41 @@ bool CumotionPlanner::UpdateEsdfFromNvblox(
   }
 
   return world_manager_->ProcessEsdfResponse(*response);
+}
+
+bool CumotionPlanner::EnsureEsdfWorkspaceBoundsCached()
+{
+  if (!read_esdf_world_ || !world_manager_) {
+    return false;
+  }
+
+  const Eigen::Vector3i grid_shape = world_manager_->GetGridShape();
+  const double voxel_size_m = world_manager_->GetVoxelSize();
+  if (grid_shape != Eigen::Vector3i::Zero() && voxel_size_m > 0.0) {
+    return true;
+  }
+
+  RCLCPP_INFO(
+    this->get_logger(),
+    "Initializing ESDF workspace bounds before bounded planning update.");
+  constexpr const EsdfClearingObjects * kNoClearingObjects = nullptr;
+  constexpr bool kUpdateEsdf = true;
+
+  // This prewarm response is used only to learn nvblox's grid geometry. The caller immediately
+  // performs the planning ESDF update again, which will be AABB-bounded.
+  for (int attempt = 1; attempt <= 3; ++attempt) {
+    if (UpdateEsdfFromNvblox(kNoClearingObjects, kUpdateEsdf)) {
+      // ProcessEsdfResponse caches nvblox's grid geometry; verify it was populated before planning.
+      const Eigen::Vector3i initialized_grid_shape = world_manager_->GetGridShape();
+      const double initialized_voxel_size_m = world_manager_->GetVoxelSize();
+      if (initialized_grid_shape != Eigen::Vector3i::Zero() && initialized_voxel_size_m > 0.0) {
+        return true;
+      }
+    }
+  }
+
+  RCLCPP_ERROR(this->get_logger(), "Failed to initialize ESDF workspace bounds");
+  return false;
 }
 
 void CumotionPlanner::PublishWorldVoxels()
@@ -687,7 +747,10 @@ void CumotionPlanner::ExecuteMoveGroupGoal(
   bool world_updated = world_manager_->UpdateWorldObjects(all_objects);
   // ESDF update + voxel visualization are handled here.
   if (world_updated && read_esdf_world_) {
-    world_updated = UpdateEsdfFromNvblox(nullptr, true);
+    world_updated = EnsureEsdfWorkspaceBoundsCached();
+    if (world_updated) {
+      world_updated = UpdateEsdfFromNvblox(nullptr, true);
+    }
   }
 
   if (world_updated) {
@@ -988,7 +1051,10 @@ void CumotionPlanner::ExecuteIkGoal(
 
   bool world_updated = world_manager_->UpdateWorldObjects(world_objects_);
   if (world_updated && read_esdf_world_) {
-    world_updated = UpdateEsdfFromNvblox(clearing_objects.get(), true);
+    world_updated = EnsureEsdfWorkspaceBoundsCached();
+    if (world_updated) {
+      world_updated = UpdateEsdfFromNvblox(clearing_objects.get(), true);
+    }
   }
 
   if (world_updated) {
@@ -1149,7 +1215,10 @@ void CumotionPlanner::StaticSceneServiceCallback(
       if (!world_objects_.empty()) {
         bool world_updated = world_manager_->UpdateWorldObjects(world_objects_);
         if (world_updated && read_esdf_world_) {
-          world_updated = UpdateEsdfFromNvblox(nullptr, true);
+          world_updated = EnsureEsdfWorkspaceBoundsCached();
+          if (world_updated) {
+            world_updated = UpdateEsdfFromNvblox(nullptr, true);
+          }
         }
 
         if (world_updated) {
@@ -1276,15 +1345,18 @@ void CumotionPlanner::ExecuteMotionPlan(
       }
     }
 
-    // Decide whether to request an ESDF update for this planning request.
-    // We always allow the first request to initialize the ESDF grid even if update_esdf is false.
+    // Decide whether to request an ESDF update for this planning request. If bounds are not cached,
+    // prewarm them first so the planning update itself is AABB-bounded.
     bool esdf_enabled = world_manager_->IsEsdfEnabled();
     Eigen::Vector3i grid_shape = world_manager_->GetGridShape();
     bool has_esdf_grid = (grid_shape != Eigen::Vector3i::Zero());
     bool update_esdf_for_request = esdf_enabled && (request->update_esdf || !has_esdf_grid);
 
     if (update_esdf_for_request) {
-      world_updated = UpdateEsdfFromNvblox(clearing_objects.get(), /*update_esdf=*/ true);
+      world_updated = EnsureEsdfWorkspaceBoundsCached();
+      if (world_updated) {
+        world_updated = UpdateEsdfFromNvblox(clearing_objects.get(), /*update_esdf=*/ true);
+      }
       if (world_updated) {
         PublishWorldVoxels();
       }
@@ -1678,7 +1750,10 @@ void CumotionPlanner::ExecuteGraspPlanning(
   if (world_updated && read_esdf_world_) {
     bool update_esdf_for_request = world_manager_->IsEsdfEnabled();
     if (update_esdf_for_request) {
-      world_updated = UpdateEsdfFromNvblox(nullptr, true);
+      world_updated = EnsureEsdfWorkspaceBoundsCached();
+      if (world_updated) {
+        world_updated = UpdateEsdfFromNvblox(nullptr, true);
+      }
     }
     if (world_updated) {
       PublishWorldVoxels();
@@ -1805,7 +1880,10 @@ void CumotionPlanner::ExecuteGraspPlanning(
 
     bool update_esdf_for_request = world_manager_->IsEsdfEnabled();
     if (update_esdf_for_request) {
-      world_updated = UpdateEsdfFromNvblox(clearing_objects.get(), true);
+      world_updated = EnsureEsdfWorkspaceBoundsCached();
+      if (world_updated) {
+        world_updated = UpdateEsdfFromNvblox(clearing_objects.get(), true);
+      }
     }
     if (world_updated) {
       PublishWorldVoxels();

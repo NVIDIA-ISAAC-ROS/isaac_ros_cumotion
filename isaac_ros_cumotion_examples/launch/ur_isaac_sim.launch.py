@@ -63,7 +63,8 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventH
 from launch.event_handlers import OnProcessStart
 from launch.launch_context import LaunchContext
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import ComposableNodeContainer, Node
+from launch_ros.descriptions import ComposableNode
 from moveit_configs_utils import MoveItConfigsBuilder
 import xacro
 import yaml
@@ -268,26 +269,33 @@ def launch_setup(context: LaunchContext, *args, **kwargs) -> List[Node]:
         remappings=[('/joint_states', '/isaac_joint_states')],
     )
 
-    # Add cumotion planner node
-    cumotion_planner_node = Node(
+    # Add cuMotion components.
+    cumotion_planner_node = ComposableNode(
         name='cumotion_planner',
         package='isaac_ros_cumotion',
-        namespace='',
-        executable='cumotion_planner_node',
+        plugin='nvidia::isaac_ros::cumotion::CumotionPlanner',
         parameters=[
             {
-                'robot': xrdf_path,
-                'urdf_path': urdf_path
+                'xrdf_file_path': xrdf_path,
+                'urdf_file_path': urdf_path
             }
         ],
-        output='screen',
     )
-    static_planning_scene_server = Node(
+    static_planning_scene_server = ComposableNode(
         package='isaac_ros_cumotion',
-        executable='static_planning_scene',
+        plugin='nvidia::isaac_ros::cumotion::StaticPlanningSceneServer',
         name='static_planning_scene_server',
+    )
+    cumotion_container = ComposableNodeContainer(
+        name='cumotion_container',
+        namespace='',
+        package='rclcpp_components',
+        executable='component_container_mt',
+        composable_node_descriptions=[
+            static_planning_scene_server,
+            cumotion_planner_node,
+        ],
         output='screen',
-        emulate_tty=True,
     )
 
     # Delay controller spawning to allow Isaac Sim to start publishing joint states
@@ -325,8 +333,7 @@ def launch_setup(context: LaunchContext, *args, **kwargs) -> List[Node]:
         ros2_control_node,
         delay_joint_state_broadcaster,
         delay_controller_spawner,
-        cumotion_planner_node,
-        static_planning_scene_server
+        cumotion_container
     ]
 
 

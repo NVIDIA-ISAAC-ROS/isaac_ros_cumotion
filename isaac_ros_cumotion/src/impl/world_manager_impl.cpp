@@ -290,24 +290,6 @@ bool WorldManagerImpl::ProcessEsdfResponse(
     return false;
   }
 
-  /**
-   * nvblox assigns a value of approximately -1000.0f to unobserved voxels. In the current planning
-   * setup, we often have "unobserved" voxels within the workspace, which causes the initial state
-   * of the robot to be in "collision", which results in a failed planning query. Here, we set the
-   * value of unobserved voxels to a free distance of 1000.0f, which is a large distance that is
-   * unlikely to be reached by the robot.
-   *
-   * NOTE: This can be dangerous if the robot is operating in a tight workspace.
-   */
-  constexpr float kUnobservedThreshold = -999.9f;
-  constexpr float kUnobservedFreeDistance = 1000.0f;
-
-  std::vector<float> processed_values;
-  processed_values.reserve(esdf_array.data.size());
-  for (const float v : esdf_array.data) {
-    processed_values.push_back((v <= kUnobservedThreshold) ? kUnobservedFreeDistance : v);
-  }
-
   // Serialize cached-grid updates and world updates.
   std::lock_guard<std::mutex> lock(world_mutex_);
 
@@ -353,7 +335,7 @@ bool WorldManagerImpl::ProcessEsdfResponse(
   has_esdf_obstacle_ = true;
 
   world_->setSdfGridValuesFromHost(
-    esdf_obstacle_handle_, processed_values.data(),
+    esdf_obstacle_handle_, esdf_array.data.data(),
     cumotion_lib::Obstacle::Grid::Precision::FLOAT);
 
   // Update world view.

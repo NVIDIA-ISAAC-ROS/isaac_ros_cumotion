@@ -64,7 +64,7 @@ class BimanualIkControllerMarkerNode(Node):
         self._frame = self.get_parameter('robot_base_frame').get_parameter_value().string_value
         self._scale = 0.3
 
-        # Current poses for each arm — initialised from parameters.
+        # Current poses for each arm — initialized from parameters.
         self._left_pose = Pose()
         self._left_pose.position.x = \
             self.get_parameter('left_initial_x').get_parameter_value().double_value

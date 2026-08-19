@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>isaac_ros_cumotion</name>
-  <version>4.5.0</version>
+  <version>4.6.0</version>
   <description>Package adds a cuMotion planner node</description>
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
   <license>NVIDIA Isaac ROS Software License</license>
@@ -39,6 +39,8 @@
 
   <!-- Load URDF/XRDF via ament_index_cpp at runtime from the robot description package. -->
   <exec_depend>isaac_ros_cumotion_robot_description</exec_depend>
+
+  <exec_depend>rclpy</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

@@ -14,14 +14,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef ISAAC_ROS_CUMOTION_CONTROLLERS__BIMANUAL_IK_CONTROLLER_HPP_
-#define ISAAC_ROS_CUMOTION_CONTROLLERS__BIMANUAL_IK_CONTROLLER_HPP_
+#ifndef ISAAC_ROS_CUMOTION_CONTROLLERS__IK_CONTROLLER_HPP_
+#define ISAAC_ROS_CUMOTION_CONTROLLERS__IK_CONTROLLER_HPP_
 
 #include <optional>
 #include <string>
 
 #include "controller_interface/controller_interface.hpp"
-#include "geometry_msgs/msg/pose_array.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "isaac_ros_cumotion_controllers/controller_utils.hpp"
 #include "isaac_ros_cumotion_controllers/ik_controller_base.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -34,20 +34,14 @@ namespace isaac_ros
 namespace cumotion_controllers
 {
 
-struct PoseTargets
-{
-  std::optional<PoseData> right{};
-  std::optional<PoseData> left{};
-};
-
-/// Bimanual cuMotion IK controller. Subscribes to a `PoseArray` of length 2
-/// (poses[0] = left EE, poses[1] = right EE), runs an open-loop integrator
-/// hard-snapped to hardware on L2 drift, and writes fixed kp / kd command
-/// values (v_cmd held at 0 for the GR00T deployment).
-class BimanualIkController : public IkControllerBase
+/// Single-arm cuMotion IK controller. Subscribes to a `PoseStamped` reference
+/// target, runs an open-loop integrator continuously low-pass synced to
+/// hardware state, and writes NaN kp/kd so a downstream SafetyController
+/// defers to its per-joint fallback gains.
+class IkController : public IkControllerBase
 {
 public:
-  BimanualIkController() = default;
+  IkController() = default;
 
 protected:
   controller_interface::CallbackReturn DeclareSubclassParameters() override;
@@ -62,25 +56,23 @@ protected:
 
 private:
   // Parameters
-  std::string left_ee_frame_name_in_{};
-  std::string right_ee_frame_name_in_{};
-  std::string left_ee_command_frame_name_{};
-  std::string right_ee_command_frame_name_{};
-  double drift_reset_threshold_{};
+  std::string ee_frame_name_in_{};  // requested EE frame; resolved name lands in ee_frame_name_
+  std::string ee_command_frame_name_{};
+  // First-order low-pass time constant (seconds) for syncing the open-loop
+  // integrator to hardware state every update(). 0 disables the sync.
+  double integrator_sync_time_constant_{0.2};
 
   // Resolved EE
-  cumotion::Kinematics::FrameHandle left_ee_frame_handle_{};
-  cumotion::Kinematics::FrameHandle right_ee_frame_handle_{};
-  std::string left_ee_frame_name_{};
-  std::string right_ee_frame_name_{};
+  cumotion::Kinematics::FrameHandle ee_frame_handle_{};
+  std::string ee_frame_name_{};
 
   // ROS
-  rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr pose_sub_{nullptr};
-  realtime_tools::RealtimeBuffer<PoseTargets> pose_targets_buffer_{};
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_{nullptr};
+  realtime_tools::RealtimeBuffer<std::optional<PoseData>> pose_target_buffer_{};
 };
 
 }  // namespace cumotion_controllers
 }  // namespace isaac_ros
 }  // namespace nvidia
 
-#endif  // ISAAC_ROS_CUMOTION_CONTROLLERS__BIMANUAL_IK_CONTROLLER_HPP_
+#endif  // ISAAC_ROS_CUMOTION_CONTROLLERS__IK_CONTROLLER_HPP_
