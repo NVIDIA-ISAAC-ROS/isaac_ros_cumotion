@@ -18,7 +18,7 @@ limitations under the License. -->
          base_class_type="controller_interface::ControllerInterface">
     <description>
       Bimanual IK controller using cuMotion RMPflow. Subscribes to ~/reference_pose
-      (PoseArray) for two end-effector targets and writes position, velocity, and
+      (NamedPoseArray) for named left/right end-effector targets and writes position, velocity, and
       effort commands to hardware interfaces via Pinocchio RNEA feedforward.
     </description>
   </class>

@@ -18,17 +18,17 @@
 """Interactive marker node for controlling the BimanualIkController bimanual end-effector targets.
 
 Publishes two 6-DOF draggable markers in RViz — one for the left arm and one for the right arm.
-A PoseArray is published at 50 Hz to /ik_controller/reference_pose where:
-  poses[0] = left end-effector target
-  poses[1] = right end-effector target
+A NamedPoseArray is published at 50 Hz to /ik_controller/reference_pose with
+`left` and `right` end-effector targets.
 
 Interaction: click on a ring handle to rotate, click on an arrow to translate.
 """
 
-from geometry_msgs.msg import Pose, PoseArray
+from geometry_msgs.msg import Pose
 from interactive_markers.interactive_marker_server import InteractiveMarkerServer
 import rclpy
 from rclpy.node import Node
+from teleop_ros2_interfaces.msg import NamedPoseArray
 from visualization_msgs.msg import (
     InteractiveMarker,
     InteractiveMarkerControl,
@@ -84,7 +84,7 @@ class BimanualIkControllerMarkerNode(Node):
         self._right_pose.orientation.w = 1.0
 
         self._pub = self.create_publisher(
-            PoseArray, '/ik_controller/reference_pose', 10)
+            NamedPoseArray, '/ik_controller/reference_pose', 10)
 
         self.create_timer(1.0 / 50.0, self._publish_reference)
 
@@ -151,11 +151,12 @@ class BimanualIkControllerMarkerNode(Node):
         self._server.insert(int_marker, feedback_callback=self._on_feedback)
 
     def _publish_reference(self) -> None:
-        msg = PoseArray()
+        msg = NamedPoseArray()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self._frame
-        msg.poses.append(self._left_pose)   # poses[0] = left EE
-        msg.poses.append(self._right_pose)  # poses[1] = right EE
+        msg.name = ['left', 'right']
+        msg.pose = [self._left_pose, self._right_pose]
+        msg.is_valid = [True, True]
         self._pub.publish(msg)
 
     def _on_feedback(self, feedback: InteractiveMarkerFeedback) -> None:

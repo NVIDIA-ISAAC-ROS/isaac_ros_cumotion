@@ -21,7 +21,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>isaac_ros_cumotion_object_attachment</name>
-  <version>4.6.0</version>
+  <version>5.0.0</version>
   <description>Package attaches/detaches a grasped object to robot's collision geometry</description>
   
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
@@ -33,6 +33,7 @@
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
 
   <depend>assimp</depend>
+  <depend>cumotion_vendor</depend>
   <depend>eigen</depend>
   <depend>yaml-cpp</depend>
   <depend>rclcpp</depend>
@@ -41,7 +42,6 @@
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>visualization_msgs</depend>
-  <depend>isaac_ros_nitros</depend>
   <depend>isaac_ros_cumotion_interfaces</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>

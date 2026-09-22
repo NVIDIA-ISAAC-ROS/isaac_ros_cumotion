@@ -89,7 +89,11 @@ def generate_test_description():
             executable='static_transform_publisher',
             name='static_transform_publisher',
             output='screen',
-            arguments=['0', '0', '0', '0', '0', '0', 'world', 'base_link']
+            arguments=[
+                '--x', '0', '--y', '0', '--z', '0',
+                '--yaw', '0', '--pitch', '0', '--roll', '0',
+                '--frame-id', 'world', '--child-frame-id', 'base_link',
+            ],
         ))
 
     return IsaacROSRobotSegmentorPolTest.generate_test_description(all_nodes)

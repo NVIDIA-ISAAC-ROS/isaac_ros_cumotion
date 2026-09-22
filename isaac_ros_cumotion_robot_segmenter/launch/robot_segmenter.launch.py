@@ -19,7 +19,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from isaac_ros_launch_utils.all_types import (
-    GroupAction, LoadComposableNodes
+    ComposableNodeContainer, GroupAction, LoadComposableNodes
 )
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
@@ -132,17 +132,30 @@ def launch_setup(context, *args, **kwargs):
 
         robot_segmenter_nodes.append(robot_segmenter_node)
 
-    load_composable_nodes = LoadComposableNodes(
-        target_container=launch_configs['container_name'],
-        composable_node_descriptions=robot_segmenter_nodes,
-    )
-    final_launch = GroupAction(
-        actions=[
-            load_composable_nodes
-        ],
-    )
+    container_name = str(context.perform_substitution(
+        LaunchConfiguration('robot_segmenter.container_name'))).strip()
+    if container_name:
+        load_composable_nodes = LoadComposableNodes(
+            target_container=container_name,
+            composable_node_descriptions=robot_segmenter_nodes,
+        )
+        final_launch = GroupAction(
+            actions=[
+                load_composable_nodes
+            ],
+        )
+        return [final_launch]
 
-    return [final_launch]
+    robot_segmenter_container = ComposableNodeContainer(
+        name='robot_segmenter_container',
+        namespace='',
+        package='rclcpp_components',
+        executable='component_container_mt',
+        env=env_variables,
+        composable_node_descriptions=robot_segmenter_nodes,
+        output='screen',
+    )
+    return [robot_segmenter_container]
 
 
 def generate_launch_description():

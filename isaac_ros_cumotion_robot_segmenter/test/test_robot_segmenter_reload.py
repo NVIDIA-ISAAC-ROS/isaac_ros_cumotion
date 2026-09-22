@@ -31,15 +31,17 @@ from launch_ros.actions import ComposableNodeContainer, Node
 import numpy as np
 import pytest
 import rclpy
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import CameraInfo, Image, JointState
-from std_msgs.msg import Bool
+from std_msgs.msg import UInt64
+import yaml
 
 TEST_FOLDER = pathlib.Path(__file__).parent / 'test_data'
 
 # Service name that the robot segmenter will call
 ROBOT_DESCRIPTION_SERVICE_NAME = '/test/get_robot_description'
 # Topic name for triggering reload
-RELOAD_TOPIC_NAME = '/test/reload_robot_description'
+RELOAD_TOPIC_NAME = '/test/robot_description_updated'
 
 
 @pytest.mark.rostest
@@ -86,11 +88,19 @@ def generate_test_description():
         executable='static_transform_publisher',
         name='world_to_camera_link',
         arguments=[
-            '-0.686180830001831', '0.5951766967773438', '0.9960432648658752',
-            '-0.007744422182440758', '0.9010432958602905', '-0.42730608582496643',
-            '0.07396451383829117',
-            'base_link', 'camera_1_infra1_optical_frame'
-        ]
+            # Keep the attached-object frame centered in the camera. The
+            # recorded camera pose places grasp_frame below the image, making
+            # an output-difference assertion dependent on incidental pixels.
+            '--x', '-0.70432473',
+            '--y', '0.29825179',
+            '--z', '-0.79990610',
+            '--qx', '0.0',
+            '--qy', '0.0',
+            '--qz', '0.0',
+            '--qw', '1.0',
+            '--frame-id', 'base_link',
+            '--child-frame-id', 'camera_1_infra1_optical_frame',
+        ],
     ))
 
     all_nodes = [container] + transform_publishers + [robot_segmenter_node]
@@ -111,6 +121,14 @@ class IsaacROSRobotSegmenterReloadTest(IsaacROSBaseTest):
             self.urdf_content = f.read()
         with open(xrdf_path, 'r') as f:
             self.xrdf_content = f.read()
+
+        updated_xrdf = yaml.safe_load(self.xrdf_content)
+        geometry_name = updated_xrdf['collision']['geometry']
+        updated_xrdf['geometry'][geometry_name]['spheres']['attached_object'] = [{
+            'center': [0.0, 0.08, 0.005],
+            'radius': 0.2,
+        }]
+        self.updated_xrdf_content = yaml.safe_dump(updated_xrdf)
 
         self.node.get_logger().info(
             f'Loaded URDF ({len(self.urdf_content)} bytes) and '
@@ -176,13 +194,15 @@ class IsaacROSRobotSegmenterReloadTest(IsaacROSBaseTest):
 
         # Create publisher for reload signal
         reload_pub = self.node.create_publisher(
-            Bool, RELOAD_TOPIC_NAME, self.DEFAULT_QOS
+            UInt64, RELOAD_TOPIC_NAME, QoSProfile(
+                depth=1,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            )
         )
 
         try:
-            # Load depth image data
-            path_npy_file_for_depth = str(TEST_FOLDER) + '/input_depth_image.npy'
-            raw_depth_data = np.load(path_npy_file_for_depth).astype(np.uint16)
+            # Use a constant 1 m depth plane so the test isolates robot geometry.
+            raw_depth_data = np.full((720, 1280), 1000, dtype=np.uint16)
             self.node.get_logger().info(f'Raw depth data shape: {raw_depth_data.shape}')
 
             # Load camera info from JSON
@@ -212,10 +232,7 @@ class IsaacROSRobotSegmenterReloadTest(IsaacROSBaseTest):
 
                 rclpy.spin_once(self.node, timeout_sec=0.1)
 
-                if (
-                    'robot_mask' in received_messages and
-                    len(received_messages['robot_mask']) > 0
-                ):
+                if 'robot_mask' in received_messages and received_messages['robot_mask']:
                     initial_segmentation_done = True
                     self.node.get_logger().info(
                         'Initial segmentation working! Received robot_mask output.')
@@ -224,17 +241,22 @@ class IsaacROSRobotSegmenterReloadTest(IsaacROSBaseTest):
 
             self.assertTrue(initial_segmentation_done,
                             'Initial segmentation did not produce output')
+            initial_mask = cv_bridge.imgmsg_to_cv2(
+                received_messages['robot_mask'][-1], desired_encoding='passthrough').copy()
 
             # Step 2: Send reload signal
             self.node.get_logger().info(
                 'Step 2: Sending reload robot description signal...')
 
-            reload_msg = Bool()
-            reload_msg.data = True
+            # Keep the initial description active through initial segmentation;
+            # switch the mock service response only when requesting the reload.
+            self.xrdf_content = self.updated_xrdf_content
+            reload_msg = UInt64()
+            reload_msg.data = 1
             reload_pub.publish(reload_msg)
 
             self.node.get_logger().info(
-                f'Published reload signal (True) to {RELOAD_TOPIC_NAME}')
+                f'Published robot description update 1 to {RELOAD_TOPIC_NAME}')
 
             # Wait for service to be called
             service_wait_end = time.time() + 10
@@ -261,8 +283,9 @@ class IsaacROSRobotSegmenterReloadTest(IsaacROSBaseTest):
                 'Step 3: Verifying segmentation works after reload...')
 
             # Clear previous messages
-            initial_count = len(received_messages.get('robot_mask', []))
+            initial_mask_count = len(received_messages.get('robot_mask', []))
             post_reload_done = False
+            attached_object_mask_updated = False
             end_time = time.time() + TIMEOUT
 
             while time.time() < end_time:
@@ -278,17 +301,24 @@ class IsaacROSRobotSegmenterReloadTest(IsaacROSBaseTest):
 
                 rclpy.spin_once(self.node, timeout_sec=0.1)
 
-                current_count = len(received_messages.get('robot_mask', []))
-                if current_count > initial_count:
+                current_mask_count = len(received_messages.get('robot_mask', []))
+                if current_mask_count > initial_mask_count:
                     post_reload_done = True
-                    self.node.get_logger().info(
-                        f'Segmentation working after reload! '
-                        f'Received {current_count - initial_count} new messages.')
-                    break
+                    updated_mask = cv_bridge.imgmsg_to_cv2(
+                        received_messages['robot_mask'][-1], desired_encoding='passthrough')
+                    mask_changed = np.count_nonzero(initial_mask != updated_mask) > 0
+                    if mask_changed:
+                        attached_object_mask_updated = True
+                        self.node.get_logger().info(
+                            'Robot mask includes the updated attached-object geometry')
+                        break
                 time.sleep(0.1)
 
             self.assertTrue(post_reload_done,
                             'Segmentation did not work after robot description reload')
+            self.assertTrue(
+                attached_object_mask_updated,
+                'Attached-object sphere update did not change the robot mask')
 
             self.node.get_logger().info('TEST PASSED: Robot description reload successful!')
 

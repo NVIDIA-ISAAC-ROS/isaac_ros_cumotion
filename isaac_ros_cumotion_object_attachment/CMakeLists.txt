@@ -29,7 +29,7 @@ find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 
 # cuMotion (resolve path from ament_index)
-ament_index_get_resource(CUMOTION_RELATIVE_PATH cumotion isaac_ros_nitros)
+ament_index_get_resource(CUMOTION_RELATIVE_PATH cumotion cumotion_vendor)
 ament_index_get_prefix_path(AMENT_INDEX_PREFIX_PATHS)
 
 foreach(PREFIX_PATH IN LISTS AMENT_INDEX_PREFIX_PATHS)
@@ -43,7 +43,7 @@ endforeach()
 
 if(NOT CUMOTION_CONFIG_FILE)
   message(FATAL_ERROR
-    "Could not find cuMotion CMake config from isaac_ros_nitros resource "
+    "Could not find cuMotion CMake config from cumotion_vendor resource "
     "'${CUMOTION_RELATIVE_PATH}'.")
 endif()
 

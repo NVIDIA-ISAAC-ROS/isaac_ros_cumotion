@@ -21,7 +21,6 @@
 #include <assimp/scene.h>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
-#include <tf2/exceptions.h>
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
@@ -35,6 +34,7 @@
 #include <thread>
 
 #include <assimp/Importer.hpp>
+#include <tf2/exceptions.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include "cumotion/collision_sphere_generator.h"
