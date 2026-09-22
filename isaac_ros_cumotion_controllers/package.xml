@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>isaac_ros_cumotion_controllers</name>
-  <version>4.6.0</version>
+  <version>5.0.0</version>
   <description>ROS 2 control controllers using cuMotion (e.g. IK via RMPflow)</description>
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
   <license>Apache-2.0</license>
@@ -12,6 +12,7 @@
 
   <!-- Core ROS2 Control -->
   <depend>controller_interface</depend>
+  <depend>cumotion_vendor</depend>
   <depend>hardware_interface</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp</depend>
@@ -20,17 +21,18 @@
   <!-- ROS2 Messages -->
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>teleop_ros2_interfaces</depend>
 
   <!-- Third-party -->
   <depend>tf2_ros</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>isaac_ros_inverse_dynamics</depend>
   <depend>realtime_tools</depend>
-  <depend>isaac_ros_nitros</depend>
 
   <!-- find_package(cumotion) pulls in cuMotion's CMake config, which calls
        find_dependency(CUDAToolkit); nvcc is required at configure/build time. -->
-  <build_depend>cuda-toolkit</build_depend>
+  <build_depend condition="$ISAAC_ROS_PLATFORM != arm64-fastos">cuda-toolkit-13-2</build_depend>
+  <build_depend condition="$ISAAC_ROS_PLATFORM == arm64-fastos">cuda-toolkit-13-0</build_depend>
 
   <!-- Python marker node deps -->
   <exec_depend>interactive_markers</exec_depend>

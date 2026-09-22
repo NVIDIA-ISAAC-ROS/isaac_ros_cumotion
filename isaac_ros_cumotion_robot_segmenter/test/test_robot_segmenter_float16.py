@@ -78,11 +78,16 @@ def generate_test_description():
         executable='static_transform_publisher',
         name='world_to_camera_link',
         arguments=[
-            '-0.686180830001831', '0.5951766967773438', '0.9960432648658752',
-            '-0.007744422182440758', '0.9010432958602905', '-0.42730608582496643',
-            '0.07396451383829117',
-            'base_link', 'camera_1_infra1_optical_frame'
-        ]
+            '--x', '-0.686180830001831',
+            '--y', '0.5951766967773438',
+            '--z', '0.9960432648658752',
+            '--qx', '-0.007744422182440758',
+            '--qy', '0.9010432958602905',
+            '--qz', '-0.42730608582496643',
+            '--qw', '0.07396451383829117',
+            '--frame-id', 'base_link',
+            '--child-frame-id', 'camera_1_infra1_optical_frame',
+        ],
     ))
 
     all_nodes = [container] + transform_publishers + [robot_segmenter_node]

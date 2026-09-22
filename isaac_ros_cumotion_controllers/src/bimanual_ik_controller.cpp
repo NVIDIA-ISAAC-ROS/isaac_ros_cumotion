@@ -17,6 +17,9 @@
 #include "isaac_ros_cumotion_controllers/bimanual_ik_controller.hpp"
 
 #include <cmath>
+#include <cstddef>
+#include <optional>
+#include <string_view>
 
 #include "cumotion/rotation3.h"
 #include "pluginlib/class_list_macros.hpp"
@@ -27,6 +30,28 @@ namespace isaac_ros
 {
 namespace cumotion_controllers
 {
+
+constexpr std::string_view kLeftTargetName = "left";
+constexpr std::string_view kRightTargetName = "right";
+
+std::optional<geometry_msgs::msg::Pose> FindValidNamedTarget(
+  const teleop_ros2_interfaces::msg::NamedPoseArray & msg,
+  std::string_view target_name)
+{
+  if (msg.name.size() != msg.pose.size() || msg.name.size() != msg.is_valid.size()) {
+    return std::nullopt;
+  }
+  for (size_t i = 0; i < msg.name.size(); ++i) {
+    if (std::string_view(msg.name[i]) != target_name) {
+      continue;
+    }
+    if (!msg.is_valid[i] || !IsReferencePoseValid(msg.pose[i])) {
+      return std::nullopt;
+    }
+    return msg.pose[i];
+  }
+  return std::nullopt;
+}
 
 controller_interface::CallbackReturn BimanualIkController::DeclareSubclassParameters()
 {
@@ -71,30 +96,30 @@ void BimanualIkController::ConfigureEndEffectors()
 void BimanualIkController::SubscribeToReferencePose(
   rclcpp_lifecycle::LifecycleNode & node, const std::string & pose_topic)
 {
-  pose_sub_ = node.create_subscription<geometry_msgs::msg::PoseArray>(
+  pose_sub_ = node.create_subscription<teleop_ros2_interfaces::msg::NamedPoseArray>(
     pose_topic, rclcpp::SensorDataQoS(),
-    [this](geometry_msgs::msg::PoseArray::SharedPtr msg) {
-      if (msg->poses.size() != 2) {
+    [this](teleop_ros2_interfaces::msg::NamedPoseArray::SharedPtr msg) {
+      if (msg->name.size() != msg->pose.size() || msg->name.size() != msg->is_valid.size()) {
         RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
-          "Expected exactly 2 reference poses (left + right), got %zu — ignoring",
-          msg->poses.size());
+          "Malformed NamedPoseArray reference: name=%zu pose=%zu is_valid=%zu — ignoring",
+          msg->name.size(), msg->pose.size(), msg->is_valid.size());
         return;
       }
 
-      const auto left_is_valid = IsReferencePoseValid(msg->poses[0]);
-      const auto right_is_valid = IsReferencePoseValid(msg->poses[1]);
-      if (!left_is_valid || !right_is_valid) {
+      const auto left_pose = FindValidNamedTarget(*msg, kLeftTargetName);
+      const auto right_pose = FindValidNamedTarget(*msg, kRightTargetName);
+      if (!left_pose || !right_pose) {
         RCLCPP_DEBUG_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
-          "Reference pose slot rejected as unset (zero pose): left_valid=%d right_valid=%d",
-          left_is_valid, right_is_valid);
+          "Reference pose name rejected or unset: left_valid=%d right_valid=%d",
+          static_cast<int>(left_pose.has_value()), static_cast<int>(right_pose.has_value()));
       }
 
       PoseTargets targets;
-      targets.left = left_is_valid ? ExtractAndTransformPose(
-        msg->header, msg->poses[0], left_ee_command_frame_name_, left_ee_frame_name_) :
+      targets.left = left_pose ? ExtractAndTransformPose(
+        msg->header, *left_pose, left_ee_command_frame_name_, left_ee_frame_name_) :
       std::nullopt;
-      targets.right = right_is_valid ? ExtractAndTransformPose(
-        msg->header, msg->poses[1], right_ee_command_frame_name_, right_ee_frame_name_) :
+      targets.right = right_pose ? ExtractAndTransformPose(
+        msg->header, *right_pose, right_ee_command_frame_name_, right_ee_frame_name_) :
       std::nullopt;
       pose_targets_buffer_.writeFromNonRT(targets);
     });
@@ -123,7 +148,7 @@ void BimanualIkController::OnSubclassDeactivate()
 
 void BimanualIkController::OnSubclassCleanup()
 {
-  // Drop the live PoseArray subscriber BEFORE the base nulls tf_buffer_ —
+  // Drop the live NamedPoseArray subscriber BEFORE the base nulls tf_buffer_ —
   // otherwise a message arriving during cleanup would dereference the null
   // tf_buffer_ inside ExtractAndTransformPose.
   pose_sub_.reset();

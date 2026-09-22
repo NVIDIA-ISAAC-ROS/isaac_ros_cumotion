@@ -9,7 +9,7 @@
     interpolation_dt: 0.05
 
     # ESDF/World configuration
-    read_esdf_world: true
+    read_esdf_world: false
     update_esdf_on_request: true
     esdf_service_name: "/nvblox_node/get_esdf_and_gradient"
 

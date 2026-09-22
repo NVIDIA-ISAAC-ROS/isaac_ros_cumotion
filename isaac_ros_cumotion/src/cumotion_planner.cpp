@@ -19,18 +19,18 @@
 
 #include <cumotion/cumotion.h>
 #include <rcl_action/action_server.h>
-#include <tf2/exceptions.h>
+#include <cstdint>
+#include <cstring>
 
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <cstring>
-#include <cstdint>
 #include <fstream>
 #include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 
 #include <geometry_msgs/msg/pose.hpp>
@@ -39,6 +39,7 @@
 #include <moveit_msgs/msg/move_it_error_codes.hpp>
 #include <moveit_msgs/msg/robot_trajectory.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
+#include <tf2/exceptions.hpp>
 #include <trajectory_msgs/msg/joint_trajectory.hpp>
 #include <trajectory_msgs/msg/joint_trajectory_point.hpp>
 #include <visualization_msgs/msg/marker.hpp>
@@ -162,12 +163,16 @@ void CumotionPlanner::InitializeWorldManager()
     esdf_client_ = this->create_client<nvblox_msgs::srv::EsdfAndGradients>(
       esdf_service_name_, rclcpp::ServicesQoS(), esdf_client_cb_group_);
 
-    // Wait for service to become available.
-    while (!esdf_client_->wait_for_service(std::chrono::seconds(15))) {
-      RCLCPP_INFO(
+    constexpr int kEsdfServiceWaitTimeoutSeconds = 30;
+    if (!esdf_client_->wait_for_service(
+        std::chrono::seconds(kEsdfServiceWaitTimeoutSeconds)))
+    {
+      RCLCPP_FATAL(
         this->get_logger(),
-        "ESDF service %s not available, waiting...",
-        esdf_service_name_.c_str());
+        "Required ESDF service %s not available after %d seconds. "
+        "Start nvblox or set read_esdf_world to false.",
+        esdf_service_name_.c_str(), kEsdfServiceWaitTimeoutSeconds);
+      throw std::runtime_error("Required ESDF service not available");
     }
     RCLCPP_INFO(
       this->get_logger(),

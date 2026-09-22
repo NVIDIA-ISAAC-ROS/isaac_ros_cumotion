@@ -21,11 +21,11 @@
 #include <string>
 
 #include "controller_interface/controller_interface.hpp"
-#include "geometry_msgs/msg/pose_array.hpp"
 #include "isaac_ros_cumotion_controllers/controller_utils.hpp"
 #include "isaac_ros_cumotion_controllers/ik_controller_base.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "realtime_tools/realtime_buffer.hpp"
+#include "teleop_ros2_interfaces/msg/named_pose_array.hpp"
 
 namespace nvidia
 {
@@ -40,8 +40,8 @@ struct PoseTargets
   std::optional<PoseData> left{};
 };
 
-/// Bimanual cuMotion IK controller. Subscribes to a `PoseArray` of length 2
-/// (poses[0] = left EE, poses[1] = right EE), runs an open-loop integrator
+/// Bimanual cuMotion IK controller. Subscribes to a `NamedPoseArray` with
+/// `left` and `right` end-effector targets, runs an open-loop integrator
 /// hard-snapped to hardware on L2 drift, and writes fixed kp / kd command
 /// values (v_cmd held at 0 for the GR00T deployment).
 class BimanualIkController : public IkControllerBase
@@ -75,7 +75,7 @@ private:
   std::string right_ee_frame_name_{};
 
   // ROS
-  rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr pose_sub_{nullptr};
+  rclcpp::Subscription<teleop_ros2_interfaces::msg::NamedPoseArray>::SharedPtr pose_sub_{nullptr};
   realtime_tools::RealtimeBuffer<PoseTargets> pose_targets_buffer_{};
 };
 

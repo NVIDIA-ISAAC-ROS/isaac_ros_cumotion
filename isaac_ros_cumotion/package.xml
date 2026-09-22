@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>isaac_ros_cumotion</name>
-  <version>4.6.0</version>
+  <version>5.0.0</version>
   <description>Package adds a cuMotion planner node</description>
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
   <license>NVIDIA Isaac ROS Software License</license>
@@ -27,11 +27,11 @@
   <depend>eigen</depend>
   <depend>yaml-cpp</depend>
   <depend>assimp</depend>
-  <depend>isaac_ros_nitros</depend>
+  <depend>isaac_ros_common</depend>
   <depend>tf2</depend>
   <depend>control_msgs</depend>
+  <depend>cumotion_vendor</depend>
   <depend>isaac_ros_cumotion_interfaces</depend>
-  <depend>isaac_ros_common</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

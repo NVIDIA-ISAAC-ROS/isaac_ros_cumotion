@@ -2,7 +2,7 @@
 
 NVIDIA accelerated packages for arm motion planning and control
 
-<div align="center"><a class="reference internal image-reference" href="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/release-4.6/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_cumotion/cumotion_ur10_demo.gif/"><img alt="image" src="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/release-4.6/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_cumotion/cumotion_ur10_demo.gif/" width="600px"/></a></div>
+<div align="center"><a class="reference internal image-reference" href="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/release-5.0/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_cumotion/cumotion_ur10_demo.gif/"><img alt="image" src="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/release-5.0/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_cumotion/cumotion_ur10_demo.gif/" width="600px"/></a></div>
 
 ## Overview
 
@@ -29,7 +29,7 @@ The key advantages of using Isaac ROS cuMotion are:
   especially those already using MoveIt 2.
 
 > [!Warning]
-> Before using or developing with cuMotion or other Isaac for Manipulation software,
+> Before using or developing with cuMotion,
 > familiarize yourself with the associated safety information that is provided by your robot
 > manufacturer.
 
@@ -64,8 +64,6 @@ The Isaac ROS cuMotion repository currently contains the following packages:
 `isaac_ros_cumotion_moveit`:
 : This package provides a plugin for MoveIt 2 that exposes cuMotion as an external planner, leveraging `isaac_ros_cumotion`.
 
-Isaac ROS cuMotion is also featured as part of [Isaac for Manipulation](https://nvidia-isaac-ros.github.io/reference_workflows/isaac_for_manipulation/index.html).
-
 ---
 
 ## Documentation
@@ -97,4 +95,4 @@ Please visit the [Isaac ROS Documentation](https://nvidia-isaac-ros.github.io/re
 
 ## Latest
 
-Update 2026-08-18: Compatibility and integration updates for the Isaac ROS 4.6.0 release
+Update 2026-09-21: Compatibility and integration updates for the Isaac ROS 5.0.0 release

@@ -25,7 +25,7 @@ from cv_bridge import CvBridge
 from isaac_ros_test import IsaacROSBaseTest, JSONConversion
 from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch_ros.actions import ComposableNodeContainer, Node
+from launch_ros.actions import Node
 import numpy as np
 import pytest
 import rclpy
@@ -56,19 +56,7 @@ def generate_test_description():
             'robot_segmenter.robot_mask_publish_topics': ['/isaac_ros_test/robot_mask'],
             'robot_segmenter.world_depth_publish_topics': ['/isaac_ros_test/robot_depth'],
             'robot_segmenter.joint_states_topic': '/isaac_ros_test/joint_states',
-            'robot_segmenter.container_name': '/isaac_ros_test/robot_segmenter_container',
         }.items(),
-    )
-
-    # Launch realsense camera
-    container = ComposableNodeContainer(
-        name='robot_segmenter_container',
-        namespace=IsaacROSRobotSegmentorTest.generate_namespace(),
-        package='rclcpp_components',
-        executable='component_container',
-        # composable_node_descriptions=[robot_segmenter_node],
-        arguments=['--ros-args', '--log-level', 'isaac_ros_test.robot_segmenter_node:=info'],
-        output='screen'
     )
 
     transform_publishers = []
@@ -79,14 +67,19 @@ def generate_test_description():
         executable='static_transform_publisher',
         name='world_to_camera_link',
         arguments=[
-            '-0.686180830001831', '0.5951766967773438', '0.9960432648658752',
-            '-0.007744422182440758', '0.9010432958602905', '-0.42730608582496643',
-            '0.07396451383829117',
-            'base_link', 'camera_1_infra1_optical_frame'
-        ]
+            '--x', '-0.686180830001831',
+            '--y', '0.5951766967773438',
+            '--z', '0.9960432648658752',
+            '--qx', '-0.007744422182440758',
+            '--qy', '0.9010432958602905',
+            '--qz', '-0.42730608582496643',
+            '--qw', '0.07396451383829117',
+            '--frame-id', 'base_link',
+            '--child-frame-id', 'camera_1_infra1_optical_frame',
+        ],
     ))
 
-    all_nodes = [container] + transform_publishers + [robot_segmenter_node]
+    all_nodes = transform_publishers + [robot_segmenter_node]
 
     return IsaacROSRobotSegmentorTest.generate_test_description(all_nodes)
 

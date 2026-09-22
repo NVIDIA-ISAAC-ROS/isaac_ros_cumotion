@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,13 +16,32 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # To avoid code duplication, we patch and then execute the Franka demo launch file provided by
-# the moveit2_tutorials package.
+# the moveit_resources_panda_moveit_config package.
 
 from os import path
 
 from ament_index_python.packages import get_package_share_directory
+from launch_ros.actions import Node
 
 import yaml
+
+
+def controller_spawner_with_params(controller_config, **kwargs):
+    """Pass controller parameters explicitly for newer ros2_control versions."""
+    arguments = list(kwargs['arguments'])
+    if '--param-file' not in arguments and '-p' not in arguments:
+        arguments.extend(['--param-file', controller_config])
+    return Node(**dict(kwargs, arguments=arguments))
+
+
+def static_transform_with_named_args(**kwargs):
+    """Convert the upstream demo's legacy transform arguments for newer tf2."""
+    arguments = kwargs['arguments']
+    if len(arguments) == 8 and '--frame-id' not in arguments:
+        flags = ['--x', '--y', '--z', '--yaw', '--pitch', '--roll',
+                 '--frame-id', '--child-frame-id']
+        arguments = [item for pair in zip(flags, arguments) for item in pair]
+    return Node(**dict(kwargs, arguments=arguments))
 
 
 def augment_moveit_config(moveit_config):
@@ -45,7 +64,8 @@ def generate_launch_description():
         'launch',
         'demo.launch.py'
     )
-    lf = open(franka_demo_launch_file).read()
+    with open(franka_demo_launch_file) as launch_file:
+        lf = launch_file.read()
 
     # Rename generate_launch_description() in base launch file.
     lf = lf.replace('generate_launch_description', 'generate_base_launch_description')
@@ -63,6 +83,16 @@ def generate_launch_description():
         'move_group_node =',
         'augment_moveit_config(moveit_config)\n    move_group_node ='
     )
+
+    # Older moveit_resources Debians predate the Lyrical controller/TF fixes.
+    # Reuse the upstream distro-specific controller path and retain fixed arguments
+    # when a newer upstream demo is installed.
+    for spawner in ('joint_state_broadcaster', 'panda_arm_controller', 'panda_hand_controller'):
+        lf = lf.replace(
+            f'{spawner}_spawner = Node(',
+            f'{spawner}_spawner = controller_spawner_with_params(ros2_controllers_path, '
+        )
+    lf = lf.replace('static_tf_node = Node(', 'static_tf_node = static_transform_with_named_args(')
 
     # Execute modified launch file.
     exec(lf, globals())

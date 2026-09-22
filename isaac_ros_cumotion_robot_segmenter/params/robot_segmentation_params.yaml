@@ -15,8 +15,8 @@
     cuda_mps_client_priority: 1
     cuda_mps_active_thread_percentage: 100
     num_cameras: 1
-    container_name: manipulator_container
-    reload_robot_description_topic: /cumotion/reload_robot_description
+    container_name: ''
+    reload_robot_description_topic: /cumotion/robot_description_updated
     robot_description_service_name: /cumotion/get_robot_description
     robot_base_frame: base_link
     enable_performance_logging: False

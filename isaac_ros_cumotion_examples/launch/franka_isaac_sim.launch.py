@@ -191,14 +191,14 @@ def generate_launch_description():
         name='static_transform_publisher',
         output='log',
         arguments=[
-            '0.04',
-            '0.0',
-            '0.04',
-            '0.0',
-            '0.0',
-            '0.0',
-            'panda_hand',
-            'sim_camera',
+            '--x', '0.04',
+            '--y', '0.0',
+            '--z', '0.04',
+            '--yaw', '0.0',
+            '--pitch', '0.0',
+            '--roll', '0.0',
+            '--frame-id', 'panda_hand',
+            '--child-frame-id', 'sim_camera',
         ],
     )
 
