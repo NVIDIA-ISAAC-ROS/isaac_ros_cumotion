@@ -284,6 +284,85 @@ TEST_F(RobotManagerImplTest, DefaultToolFrame)
   EXPECT_EQ(manager.GetToolFrame(), "tool_frame");
 }
 
+// A full robot state includes non-controlled joints. Passing all positions to cuMotion
+// produces the wrong c-space dimension, even though the arm start state is valid.
+TEST_F(RobotManagerImplTest, StartStateFiltersExtraJointsAndUsesCSpaceOrder)
+{
+  RobotManagerImpl manager(GetValidUrdfPath(), GetValidXrdfPath(), test_node_->get_logger());
+  moveit_msgs::msg::RobotState state;
+  state.joint_state.name = {"finger_joint1", "joint2", "joint1", "finger_joint2"};
+  state.joint_state.position = {0.04, -0.4, 0.3, 0.04};
+
+  Eigen::VectorXd position;
+  std::string error;
+  ASSERT_TRUE(manager.ResolveMoveItStartCSpacePosition(state, position, error)) << error;
+  ASSERT_EQ(position.size(), manager.GetNumJoints());
+  EXPECT_DOUBLE_EQ(position(0), 0.3);
+  EXPECT_DOUBLE_EQ(position(1), -0.4);
+}
+
+// Joint constraints can arrive in a different order than the XRDF. Copying positions
+// without consulting names sends the robot toward a different joint configuration.
+TEST_F(RobotManagerImplTest, JointGoalUsesCSpaceOrder)
+{
+  RobotManagerImpl manager(GetValidUrdfPath(), GetValidXrdfPath(), test_node_->get_logger());
+  std::vector<moveit_msgs::msg::JointConstraint> constraints(2);
+  constraints[0].joint_name = "joint2";
+  constraints[0].position = -0.4;
+  constraints[1].joint_name = "joint1";
+  constraints[1].position = 0.3;
+
+  Eigen::VectorXd position;
+  std::string error;
+  ASSERT_TRUE(manager.ResolveMoveItGoalCSpacePosition(constraints, position, error)) << error;
+  ASSERT_EQ(position.size(), manager.GetNumJoints());
+  EXPECT_DOUBLE_EQ(position(0), 0.3);
+  EXPECT_DOUBLE_EQ(position(1), -0.4);
+}
+
+TEST_F(RobotManagerImplTest, StartDiffRejectsNamedJointWithoutPosition)
+{
+  RobotManagerImpl manager(GetValidUrdfPath(), GetValidXrdfPath(), test_node_->get_logger());
+  manager.UpdateJointState({"joint1", "joint2"}, {0.3, -0.4}, {});
+  moveit_msgs::msg::RobotState state;
+  state.is_diff = true;
+  state.joint_state.name = {"joint1", "joint2"};
+  state.joint_state.position = {0.8};
+
+  Eigen::VectorXd position;
+  std::string error;
+  EXPECT_FALSE(manager.ResolveMoveItStartCSpacePosition(state, position, error));
+  EXPECT_NE(error.find("joint2"), std::string::npos);
+}
+
+TEST_F(RobotManagerImplTest, StartStateRejectsPartialAndEmptyRequests)
+{
+  RobotManagerImpl manager(GetValidUrdfPath(), GetValidXrdfPath(), test_node_->get_logger());
+  manager.UpdateJointState({"joint1", "joint2"}, {0.3, -0.4}, {});
+
+  for (const bool is_diff : {false, true}) {
+    moveit_msgs::msg::RobotState state;
+    state.is_diff = is_diff;
+    state.joint_state.name = {"joint1"};
+    state.joint_state.position = {0.8};
+    Eigen::VectorXd position;
+    std::string error;
+    EXPECT_FALSE(manager.ResolveMoveItStartCSpacePosition(state, position, error));
+    EXPECT_NE(error.find("joint2"), std::string::npos);
+
+    state.joint_state.name.clear();
+    state.joint_state.position.clear();
+    EXPECT_FALSE(manager.ResolveMoveItStartCSpacePosition(state, position, error));
+    EXPECT_FALSE(error.empty());
+
+    state.joint_state.name = {"joint2", "joint1"};
+    state.joint_state.position = {-0.4, 0.8};
+    ASSERT_TRUE(manager.ResolveMoveItStartCSpacePosition(state, position, error)) << error;
+    EXPECT_DOUBLE_EQ(position(0), 0.8);
+    EXPECT_DOUBLE_EQ(position(1), -0.4);
+  }
+}
+
 }  // namespace cumotion
 }  // namespace isaac_ros
 }  // namespace nvidia

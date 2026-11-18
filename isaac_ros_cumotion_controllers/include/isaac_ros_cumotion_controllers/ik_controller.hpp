@@ -51,7 +51,7 @@ protected:
   void OnSubclassActivate() override;
   void OnSubclassDeactivate() override;
   void OnSubclassCleanup() override;
-  void ApplyPoseTargetsToRmpflow() override;
+  bool ApplyPoseTargetsToRmpflow() override;
   void SyncIntegratorToHardware(double dt) override;
 
 private:

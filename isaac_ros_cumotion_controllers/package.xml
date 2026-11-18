@@ -1,8 +1,23 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
+  <!--
+   Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+  
+   http://www.apache.org/licenses/LICENSE-2.0
+  
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+  -->
   <name>isaac_ros_cumotion_controllers</name>
-  <version>5.0.0</version>
+  <version>5.1.0</version>
   <description>ROS 2 control controllers using cuMotion (e.g. IK via RMPflow)</description>
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
   <license>Apache-2.0</license>
@@ -24,8 +39,10 @@
   <depend>teleop_ros2_interfaces</depend>
 
   <!-- Third-party -->
+  <depend>pinocchio</depend>
   <depend>tf2_ros</depend>
   <depend>tf2_geometry_msgs</depend>
+  <depend>isaac_ros_deploy_ros2_control</depend>
   <depend>isaac_ros_inverse_dynamics</depend>
   <depend>realtime_tools</depend>
 

@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "Eigen/Core"
+#include "pinocchio/multibody.hpp"
 
 #include "controller_interface/controller_interface.hpp"
 #include "geometry_msgs/msg/pose.hpp"
@@ -102,9 +103,11 @@ protected:
   virtual void OnSubclassCleanup() {}
 
   /// Per-cycle hook: pull the latest reference pose(s) from the subclass-owned
-  /// realtime buffer and push to rmpflow_ via setPoseTarget. Called from
-  /// update() after the integrator sync, before evalAccel.
-  virtual void ApplyPoseTargetsToRmpflow() = 0;
+  /// realtime buffer and push to rmpflow_ via setPoseTarget. Returns true when
+  /// at least one valid target is active. Until then, update() holds the
+  /// activation (or last commanded) joint position instead of evaluating
+  /// autonomous RMP objectives.
+  virtual bool ApplyPoseTargetsToRmpflow() = 0;
 
   /// Per-cycle hook: bring `joint_position_integrated_` / `joint_velocity_integrated_`
   /// closer to the measured `joint_position_` / `joint_velocity_`. The two
@@ -133,24 +136,41 @@ protected:
   /// `max_joint_velocity` parameter is positive.
   static void ApplyVelocityCap(cumotion::RmpFlowConfig & config, double max_velocity);
 
+  /// Synchronize read-only joint transforms before initialization and IK evaluation.
+  bool UpdateTrackedJoints(bool require_finite);
+
   // ---- Shared state (protected so subclasses can read/write) ------------
 
   // Parameters set in on_configure()
   std::vector<std::string> joint_names_{};
+  std::vector<std::string> tracked_joint_names_{};
   std::string command_prefix_{};
   std::string command_suffix_{};
 
   // Per-joint command policy. Defaults: NaN kp/kd to defer to safety_controller's
-  // fallback gains; velocity = v_target_(i). Subclasses tweak in
-  // DeclareSubclassParameters() if they want fixed gains or v=0.
+  // fallback gains; velocity = v_target_(i). Subclasses may provide scalar or
+  // per-joint gains and request v=0 in DeclareSubclassParameters().
   double kp_command_value_{std::numeric_limits<double>::quiet_NaN()};
   double kd_command_value_{std::numeric_limits<double>::quiet_NaN()};
+  std::vector<double> kp_command_values_{};
+  std::vector<double> kd_command_values_{};
   bool zero_velocity_command_{false};
 
   // cuMotion
   std::unique_ptr<cumotion::RmpFlow> rmpflow_{nullptr};
   std::unique_ptr<cumotion::Kinematics> kinematics_{nullptr};
   std::string base_frame_{};
+
+  struct TrackedLink
+  {
+    int q_index;
+    pinocchio::JointIndex joint_id;
+    cumotion::Kinematics::FrameHandle frame;
+  };
+  std::vector<TrackedLink> tracked_links_{};
+  pinocchio::Model tracked_model_{};
+  std::unique_ptr<pinocchio::Data> tracked_data_{};
+  Eigen::VectorXd tracked_positions_{};
 
   // Feed-forward inverse dynamics. The shared solver assumes single-DOF,
   // fixed-base joints (idx_qs == idx_vs); it lives in the isaac_ros_deploy
@@ -165,6 +185,7 @@ protected:
   {
     std::vector<size_t> pos_state{};
     std::vector<size_t> vel_state{};
+    std::vector<size_t> tracked_pos_state{};
     std::vector<size_t> pos_cmd{};
     std::vector<size_t> vel_cmd{};
     std::vector<size_t> effort_cmd{};
