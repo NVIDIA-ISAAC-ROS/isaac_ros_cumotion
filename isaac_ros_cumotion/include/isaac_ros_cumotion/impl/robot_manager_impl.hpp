@@ -28,6 +28,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <moveit_msgs/msg/joint_constraint.hpp>
+#include <moveit_msgs/msg/robot_state.hpp>
 #include <rclcpp/logger.hpp>
 #include "isaac_ros_cumotion/impl/utils.hpp"
 
@@ -102,6 +104,24 @@ public:
   bool GetCurrentJointState(Eigen::VectorXd & state) const;
 
   /**
+   * Validate and map a complete controlled start state into c-space order.
+   * Reject missing joint positions, including partial or empty diffs. Output is valid on success.
+   */
+  bool ResolveMoveItStartCSpacePosition(
+    const moveit_msgs::msg::RobotState & state,
+    Eigen::VectorXd & position,
+    std::string & error) const;
+
+  /**
+   * Extract a complete joint goal in c-space order. Reject unsupported, missing, or
+   * non-finite targets, returning false with a diagnostic in error. Output is valid on success.
+   */
+  bool ResolveMoveItGoalCSpacePosition(
+    const std::vector<moveit_msgs::msg::JointConstraint> & constraints,
+    Eigen::VectorXd & position,
+    std::string & error) const;
+
+  /**
    * Updates the internal joint state buffer using joint names and values. The provided joint
    * ordering is mapped into the cuMotion configuration-space ordering.
    *
@@ -120,6 +140,13 @@ public:
   JointStateBuffer GetJointStateBuffer() const;
 
 private:
+  // Map named positions into c-space order. Caller must hold state_mutex_.
+  bool MapJointPositions(
+    const std::vector<std::string> & names,
+    const std::vector<double> & values,
+    Eigen::VectorXd & position,
+    std::string & error) const;
+
   // Rebuild joint-name to index map for cuMotion c-space coordinate ordering.
   void BuildJointNameToIndexMap();
 

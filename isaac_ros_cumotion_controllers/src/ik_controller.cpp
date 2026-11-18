@@ -55,7 +55,7 @@ void IkController::SubscribeToReferencePose(
   rclcpp_lifecycle::LifecycleNode & node, const std::string & pose_topic)
 {
   pose_sub_ = node.create_subscription<geometry_msgs::msg::PoseStamped>(
-    pose_topic, rclcpp::SensorDataQoS(),
+    pose_topic, rclcpp::SensorDataQoS().keep_last(1),
     [this](geometry_msgs::msg::PoseStamped::SharedPtr msg) {
       if (!IsReferencePoseValid(msg->pose)) {
         RCLCPP_DEBUG_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
@@ -90,13 +90,15 @@ void IkController::OnSubclassCleanup()
   pose_target_buffer_.writeFromNonRT(std::nullopt);
 }
 
-void IkController::ApplyPoseTargetsToRmpflow()
+bool IkController::ApplyPoseTargetsToRmpflow()
 {
   const auto target = *pose_target_buffer_.readFromRT();
   if (target && IsPoseDataFinite(*target)) {
     rmpflow_->setPoseTarget(ee_frame_name_,
       cumotion::Pose3(cumotion::Rotation3(target->second), target->first));
+    return true;
   }
+  return false;
 }
 
 void IkController::SyncIntegratorToHardware(double dt)

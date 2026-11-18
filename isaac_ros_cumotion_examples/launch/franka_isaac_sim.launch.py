@@ -240,13 +240,19 @@ def generate_launch_description():
     panda_arm_controller_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['panda_arm_controller', '-c', '/controller_manager'],
+        arguments=[
+            'panda_arm_controller', '-c', '/controller_manager',
+            '--param-file', ros2_controllers_path,
+        ],
     )
 
     panda_hand_controller_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['panda_hand_controller', '-c', '/controller_manager'],
+        arguments=[
+            'panda_hand_controller', '-c', '/controller_manager',
+            '--param-file', ros2_controllers_path,
+        ],
     )
 
     return LaunchDescription(

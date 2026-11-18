@@ -18,10 +18,12 @@
 
 #include <cmath>
 #include <cstddef>
+#include <exception>
 #include <optional>
 #include <string_view>
 
 #include "cumotion/rotation3.h"
+#include "isaac_ros_deploy_ros2_control/utils/gain_utils.hpp"
 #include "pluginlib/class_list_macros.hpp"
 
 namespace nvidia
@@ -65,9 +67,16 @@ controller_interface::CallbackReturn BimanualIkController::DeclareSubclassParame
     "right_ee_command_frame", right_ee_frame_name_in_);
   drift_reset_threshold_ = auto_declare<double>("drift_reset_threshold", 0.5);
 
-  // Fixed gains + v_cmd=0 match the GR00T safety_controller chaining contract.
-  kp_command_value_ = auto_declare<double>("kp", 20.0);
-  kd_command_value_ = auto_declare<double>("kd", 1.0);
+  // Per-joint gains + v_cmd=0 match the GR00T safety_controller chaining contract.
+  try {
+    kp_command_values_ = isaac_ros_deploy_ros2_control::utils::resolve_gains_from_params(
+      *get_node(), "kp", joint_names_, 20.0);
+    kd_command_values_ = isaac_ros_deploy_ros2_control::utils::resolve_gains_from_params(
+      *get_node(), "kd", joint_names_, 1.0);
+  } catch (const std::exception & e) {
+    RCLCPP_ERROR(get_node()->get_logger(), "Failed to resolve per-joint gains: %s", e.what());
+    return controller_interface::CallbackReturn::ERROR;
+  }
   zero_velocity_command_ = true;
 
   if (!std::isfinite(drift_reset_threshold_) || drift_reset_threshold_ <= 0.0) {
@@ -97,7 +106,7 @@ void BimanualIkController::SubscribeToReferencePose(
   rclcpp_lifecycle::LifecycleNode & node, const std::string & pose_topic)
 {
   pose_sub_ = node.create_subscription<teleop_ros2_interfaces::msg::NamedPoseArray>(
-    pose_topic, rclcpp::SensorDataQoS(),
+    pose_topic, rclcpp::SensorDataQoS().keep_last(1),
     [this](teleop_ros2_interfaces::msg::NamedPoseArray::SharedPtr msg) {
       if (msg->name.size() != msg->pose.size() || msg->name.size() != msg->is_valid.size()) {
         RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
@@ -127,15 +136,14 @@ void BimanualIkController::SubscribeToReferencePose(
 
 void BimanualIkController::OnSubclassActivate()
 {
-  const auto n_dof = static_cast<int>(joint_names_.size());
   rmpflow_->setPoseTarget(left_ee_frame_name_,
     kinematics_->pose(joint_position_integrated_, left_ee_frame_handle_));
   rmpflow_->setPoseTarget(right_ee_frame_name_,
     kinematics_->pose(joint_position_integrated_, right_ee_frame_handle_));
-  // Attract the null space toward the zero configuration, not the live
-  // integrated state — an intentional difference from the single-arm
-  // IkController (which attracts toward joint_position_integrated_).
-  rmpflow_->setCSpaceAttractor(Eigen::VectorXd::Zero(n_dof));
+  // Seed the null-space objective from the live state so activation holds the
+  // robot still until a reference pose arrives.
+  rmpflow_->setCSpaceAttractor(joint_position_integrated_);
+  pose_targets_buffer_.writeFromNonRT(PoseTargets{});
 }
 
 void BimanualIkController::OnSubclassDeactivate()
@@ -155,26 +163,35 @@ void BimanualIkController::OnSubclassCleanup()
   pose_targets_buffer_.writeFromNonRT(PoseTargets{});
 }
 
-void BimanualIkController::ApplyPoseTargetsToRmpflow()
+bool BimanualIkController::ApplyPoseTargetsToRmpflow()
 {
   const auto targets = *pose_targets_buffer_.readFromRT();
+  bool has_active_target = false;
   if (targets.right && IsPoseDataFinite(*targets.right)) {
     rmpflow_->setPoseTarget(right_ee_frame_name_,
       cumotion::Pose3(cumotion::Rotation3(targets.right->second), targets.right->first));
+    has_active_target = true;
   }
   if (targets.left && IsPoseDataFinite(*targets.left)) {
     rmpflow_->setPoseTarget(left_ee_frame_name_,
       cumotion::Pose3(cumotion::Rotation3(targets.left->second), targets.left->first));
+    has_active_target = true;
   }
+  return has_active_target;
 }
 
 void BimanualIkController::SyncIntegratorToHardware([[maybe_unused]] double dt)
 {
-  // Episodic hard-snap on L2 drift; the integrator runs open-loop otherwise.
-  const double drift = (joint_position_integrated_ - joint_position_).norm();
+  // Episodic hard-snap on the worst individual joint drift; the integrator
+  // runs open-loop otherwise. An L2 norm would scale with the number of
+  // controlled joints and spuriously reset when several joints each have a
+  // small, acceptable tracking error.
+  const double drift =
+    (joint_position_integrated_ - joint_position_).cwiseAbs().maxCoeff();
   if (drift > drift_reset_threshold_) {
     RCLCPP_WARN_THROTTLE(get_node()->get_logger(), *get_node()->get_clock(), 1000,
-      "Integrator drift %.3f rad exceeds threshold %.3f — resetting to hardware state",
+      "Maximum joint integrator drift %.3f rad exceeds threshold %.3f — "
+      "resetting to hardware state",
       drift, drift_reset_threshold_);
     joint_position_integrated_ = joint_position_;
     joint_velocity_integrated_ = joint_velocity_;

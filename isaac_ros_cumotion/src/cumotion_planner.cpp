@@ -878,24 +878,13 @@ bool CumotionPlanner::GetStartCSpacePosition(
   const moveit_msgs::msg::MotionPlanRequest & request,
   Eigen::VectorXd & start_cspace_position)
 {
-  if (!request.start_state.joint_state.position.empty()) {
-    start_cspace_position = ToEigenVector(request.start_state.joint_state.position);
-
-    if (request.start_state.is_diff) {
-      Eigen::VectorXd current;
-      if (robot_manager_->GetCurrentJointState(current)) {
-        start_cspace_position += current;
-      }
-    }
-    return true;
-  }
-
-  if (!robot_manager_->GetCurrentJointState(start_cspace_position)) {
-    RCLCPP_ERROR(
-      this->get_logger(), "No valid joint state available from robot manager");
+  std::string error;
+  if (!robot_manager_->ResolveMoveItStartCSpacePosition(
+      request.start_state, start_cspace_position, error))
+  {
+    RCLCPP_ERROR(this->get_logger(), "Invalid MoveIt start state: %s", error.c_str());
     return false;
   }
-
   return true;
 }
 
@@ -920,9 +909,12 @@ bool CumotionPlanner::GetGoal(
   if (!constraint.joint_constraints.empty()) {
     RCLCPP_INFO(this->get_logger(), "Using joint space goal");
 
-    goal_cspace_position.resize(constraint.joint_constraints.size());
-    for (size_t i = 0; i < constraint.joint_constraints.size(); ++i) {
-      goal_cspace_position(i) = constraint.joint_constraints[i].position;
+    std::string error;
+    if (!robot_manager_->ResolveMoveItGoalCSpacePosition(
+        constraint.joint_constraints, goal_cspace_position, error))
+    {
+      RCLCPP_ERROR(this->get_logger(), "Invalid MoveIt joint goal: %s", error.c_str());
+      return false;
     }
 
     has_joint_goal = true;

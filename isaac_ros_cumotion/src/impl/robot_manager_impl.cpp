@@ -23,7 +23,9 @@
 
 #include <Eigen/Core>
 #include <algorithm>
+#include <cmath>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -355,6 +357,68 @@ bool RobotManagerImpl::GetCurrentJointState(Eigen::VectorXd & state) const
     js_buffer_.position.size());
 
   return true;
+}
+
+bool RobotManagerImpl::MapJointPositions(
+  const std::vector<std::string> & names,
+  const std::vector<double> & values,
+  Eigen::VectorXd & position,
+  std::string & error) const
+{
+  error.clear();
+  position.resize(joint_name_to_index_.size());
+  for (const auto & joint : joint_name_to_index_) {
+    const auto & name = joint.first;
+    const auto i = joint.second;
+    const auto it = std::find(names.begin(), names.end(), name);
+    const auto input_index = static_cast<std::size_t>(std::distance(names.begin(), it));
+    if (it != names.end()) {
+      if (input_index >= values.size()) {
+        error = "Missing position for named controlled joint '" + name + "'";
+        return false;
+      }
+      if (!std::isfinite(values[input_index])) {
+        error = "Non-finite position for controlled joint '" + name + "'";
+        return false;
+      }
+      position(i) = values[input_index];
+    } else {
+      error = "Missing position for controlled joint '" + name + "'";
+      return false;
+    }
+  }
+  return true;
+}
+
+bool RobotManagerImpl::ResolveMoveItStartCSpacePosition(
+  const moveit_msgs::msg::RobotState & state,
+  Eigen::VectorXd & position,
+  std::string & error) const
+{
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  return MapJointPositions(
+    state.joint_state.name, state.joint_state.position, position, error);
+}
+
+bool RobotManagerImpl::ResolveMoveItGoalCSpacePosition(
+  const std::vector<moveit_msgs::msg::JointConstraint> & constraints,
+  Eigen::VectorXd & position,
+  std::string & error) const
+{
+  std::lock_guard<std::mutex> lock(state_mutex_);
+  std::vector<std::string> names;
+  std::vector<double> values;
+  names.reserve(constraints.size());
+  values.reserve(constraints.size());
+  for (const auto & constraint : constraints) {
+    if (joint_name_to_index_.find(constraint.joint_name) == joint_name_to_index_.end()) {
+      error = "Unsupported goal joint '" + constraint.joint_name + "'";
+      return false;
+    }
+    names.push_back(constraint.joint_name);
+    values.push_back(constraint.position);
+  }
+  return MapJointPositions(names, values, position, error);
 }
 
 // Check if valid joint state is available.

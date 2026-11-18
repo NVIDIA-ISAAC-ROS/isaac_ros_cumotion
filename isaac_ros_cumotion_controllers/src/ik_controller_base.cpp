@@ -16,12 +16,19 @@
 
 #include "isaac_ros_cumotion_controllers/ik_controller_base.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
+#include <stdexcept>
+#include <unordered_set>
 
 #include "cumotion/cumotion.h"
 #include "cumotion/robot_description.h"
 #include "cumotion/world.h"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
+#include "pinocchio/algorithm/kinematics.hpp"
+#include "pinocchio/algorithm/joint-configuration.hpp"
+#include "pinocchio/parsers/urdf.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 namespace nvidia
@@ -94,6 +101,7 @@ controller_interface::CallbackReturn IkControllerBase::on_configure(
   const rclcpp_lifecycle::State &)
 {
   joint_names_ = auto_declare<std::vector<std::string>>("joints", {});
+  tracked_joint_names_ = auto_declare<std::vector<std::string>>("tracked_joints", {});
   const std::filesystem::path urdf_path = auto_declare<std::string>("urdf_path", "");
   const std::filesystem::path xrdf_path = auto_declare<std::string>("xrdf_path", "");
   const std::filesystem::path rmpflow_config = auto_declare<std::string>("rmpflow_config_path", "");
@@ -130,6 +138,46 @@ controller_interface::CallbackReturn IkControllerBase::on_configure(
 
   kinematics_ = robot_description->kinematics();
   base_frame_ = kinematics_->frameName(kinematics_->baseFrame());
+
+  // Read-only joints stay outside the arm c-space. Their child-link transforms
+  // must follow measured waist positions rather than the fixed XRDF defaults.
+  tracked_links_.clear();
+  tracked_data_.reset();
+  if (!tracked_joint_names_.empty()) {
+    try {
+      tracked_model_ = pinocchio::Model{};
+      pinocchio::urdf::buildModel(urdf_path.string(), tracked_model_);
+      tracked_data_ = std::make_unique<pinocchio::Data>(tracked_model_);
+      tracked_positions_ = pinocchio::neutral(tracked_model_);
+      std::unordered_set<std::string> seen;
+      for (const auto & joint : tracked_joint_names_) {
+        if (!seen.insert(joint).second ||
+          std::find(joint_names_.begin(), joint_names_.end(), joint) != joint_names_.end() ||
+          !tracked_model_.existJointName(joint))
+        {
+          throw std::invalid_argument("Invalid, duplicate, or controlled tracked joint: " + joint);
+        }
+        const auto id = tracked_model_.getJointId(joint);
+        if (tracked_model_.nqs[id] != 1 || tracked_model_.nvs[id] != 1) {
+          throw std::invalid_argument("Tracked joint must have one position coordinate: " + joint);
+        }
+        const auto joint_frame = tracked_model_.getFrameId(joint, pinocchio::JOINT);
+        const auto child = std::find_if(
+          tracked_model_.frames.begin(), tracked_model_.frames.end(),
+          [&](const auto & frame) {
+            return frame.type == pinocchio::BODY && frame.parentFrame == joint_frame;
+          });
+        if (child == tracked_model_.frames.end()) {
+          throw std::invalid_argument("No child link for tracked joint: " + joint);
+        }
+        tracked_links_.push_back({
+                tracked_model_.idx_qs[id], id, kinematics_->frame(child->name)});
+      }
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR(n.get_logger(), "Cannot configure tracked joints: %s", e.what());
+      return controller_interface::CallbackReturn::ERROR;
+    }
+  }
 
   auto world = cumotion::CreateWorld();
   auto rmpflow_cfg = cumotion::CreateRmpFlowConfigFromFile(
@@ -250,6 +298,20 @@ controller_interface::CallbackReturn IkControllerBase::on_activate(
   hw_.pos_cmd = *pos_c; hw_.vel_cmd = *vel_c;
   hw_.effort_cmd = *eff_c; hw_.kp_cmd = *kp_c; hw_.kd_cmd = *kd_c;
 
+  std::vector<std::string> tracked_interfaces;
+  for (const auto & joint : tracked_joint_names_) {
+    tracked_interfaces.push_back(joint + "/" + hardware_interface::HW_IF_POSITION);
+  }
+  const auto tracked = FindInterfaceIndices(tracked_interfaces, state_interfaces_);
+  if (!tracked) {
+    RCLCPP_ERROR(get_node()->get_logger(), "Missing tracked joint position state interface");
+    return controller_interface::CallbackReturn::ERROR;
+  }
+  hw_.tracked_pos_state = *tracked;
+  if (!UpdateTrackedJoints(true)) {
+    return controller_interface::CallbackReturn::ERROR;
+  }
+
   for (int i = 0; i < n_dof; ++i) {
     const auto pos = state_interfaces_[hw_.pos_state[i]].get_optional<double>();
     const auto vel = state_interfaces_[hw_.vel_state[i]].get_optional<double>();
@@ -285,6 +347,9 @@ controller_interface::CallbackReturn IkControllerBase::on_cleanup(
   rmpflow_.reset();
   kinematics_.reset();
   id_solver_.reset();
+  tracked_data_.reset();
+  tracked_links_.clear();
+  hw_.tracked_pos_state.clear();
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -312,7 +377,33 @@ IkControllerBase::state_interface_configuration() const
     config.names.push_back(j + "/" + hardware_interface::HW_IF_POSITION);
     config.names.push_back(j + "/" + hardware_interface::HW_IF_VELOCITY);
   }
+  for (const auto & j : tracked_joint_names_) {
+    config.names.push_back(j + "/" + hardware_interface::HW_IF_POSITION);
+  }
   return config;
+}
+
+bool IkControllerBase::UpdateTrackedJoints(bool require_finite)
+{
+  if (tracked_links_.empty()) {return true;}
+  for (size_t i = 0; i < tracked_links_.size(); ++i) {
+    const auto position = state_interfaces_[hw_.tracked_pos_state[i]].get_optional<double>();
+    if (position && std::isfinite(*position)) {
+      tracked_positions_[tracked_links_[i].q_index] = *position;
+    } else if (require_finite) {
+      RCLCPP_ERROR(get_node()->get_logger(),
+        "No finite position for tracked joint '%s'", tracked_joint_names_[i].c_str());
+      return false;
+    }
+  }
+  pinocchio::forwardKinematics(tracked_model_, *tracked_data_, tracked_positions_);
+  for (const auto & link : tracked_links_) {
+    const auto & transform = tracked_data_->liMi[link.joint_id];
+    kinematics_->setPrecedingFixedTransform(link.frame,
+      cumotion::Pose3(cumotion::Rotation3::FromMatrix(transform.rotation()),
+      transform.translation()));
+  }
+  return true;
 }
 
 controller_interface::return_type IkControllerBase::update(
@@ -328,10 +419,19 @@ controller_interface::return_type IkControllerBase::update(
       state_interfaces_[hw_.vel_state[i]].get_optional<double>().value_or(joint_velocity_(i));
   }
 
-  SyncIntegratorToHardware(dt);
-  ApplyPoseTargetsToRmpflow();
-
-  rmpflow_->evalAccel(joint_position_integrated_, joint_velocity_integrated_, joint_accel_);
+  UpdateTrackedJoints(false);
+  const bool has_active_target = ApplyPoseTargetsToRmpflow();
+  if (has_active_target) {
+    SyncIntegratorToHardware(dt);
+    rmpflow_->evalAccel(joint_position_integrated_, joint_velocity_integrated_, joint_accel_);
+  } else {
+    // Activation alone must not make the robot move. Collision and joint-limit
+    // RMPs can produce acceleration even when the pose and c-space targets are
+    // initialized from the current state, so bypass RMPflow until a user target
+    // arrives and hold the activation (or last commanded) joint position.
+    joint_velocity_integrated_.setZero();
+    joint_accel_.setZero();
+  }
 
   v_target_.noalias() = joint_velocity_integrated_ + dt * joint_accel_;
   q_target_.noalias() = joint_position_integrated_ + dt * v_target_;
@@ -349,12 +449,18 @@ controller_interface::return_type IkControllerBase::update(
     (void)command_interfaces_[hw_.vel_cmd[i]].set_value(
       zero_velocity_command_ ? 0.0 : v_target_(i));
     (void)command_interfaces_[hw_.effort_cmd[i]].set_value(tau_ff_(i));
-    (void)command_interfaces_[hw_.kp_cmd[i]].set_value(kp_command_value_);
-    (void)command_interfaces_[hw_.kd_cmd[i]].set_value(kd_command_value_);
+    const double kp_command = kp_command_values_.empty() ?
+      kp_command_value_ : kp_command_values_[i];
+    const double kd_command = kd_command_values_.empty() ?
+      kd_command_value_ : kd_command_values_[i];
+    (void)command_interfaces_[hw_.kp_cmd[i]].set_value(kp_command);
+    (void)command_interfaces_[hw_.kd_cmd[i]].set_value(kd_command);
   }
 
-  joint_velocity_integrated_ += dt * joint_accel_;
-  joint_position_integrated_ += dt * joint_velocity_integrated_;
+  if (has_active_target) {
+    joint_velocity_integrated_ += dt * joint_accel_;
+    joint_position_integrated_ += dt * joint_velocity_integrated_;
+  }
 
   return controller_interface::return_type::OK;
 }
